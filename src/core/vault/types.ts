@@ -1,4 +1,4 @@
-export type ConnectionType = "redis" | "postgres" | "mysql" | "mongo" | "s3" | "http";
+export type ConnectionType = "redis" | "postgres" | "mysql" | "mongo" | "s3" | "http" | "ssh";
 
 export interface ConnectionConfig {
   id: string;
@@ -34,6 +34,7 @@ export const CONNECTION_LABELS: Record<ConnectionType, string> = {
   mongo: "MongoDB",
   s3: "S3-Compatible",
   http: "HTTP API",
+  ssh: "SSH Remote",
 };
 
 export const CONNECTION_ICONS: Record<ConnectionType, string> = {
@@ -43,6 +44,7 @@ export const CONNECTION_ICONS: Record<ConnectionType, string> = {
   mongo: "[M]",
   s3: "[S]",
   http: "[H]",
+  ssh: "[SSH]",
 };
 
 export const DEFAULT_PORTS: Record<ConnectionType, number> = {
@@ -52,4 +54,5 @@ export const DEFAULT_PORTS: Record<ConnectionType, number> = {
   mongo: 27017,
   s3: 9000,
   http: 80,
+  ssh: 22,
 };

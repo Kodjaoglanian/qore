@@ -14,6 +14,7 @@ import type { RedisManager } from "../core/connections/redis.js";
 import type { S3Manager } from "../core/connections/s3.js";
 import type { DatabaseManager, StorageManager, QueryResult, ObjectInfo } from "../core/connections/manager.js";
 import type { HttpManager } from "../core/connections/http.js";
+import type { SshManager } from "../core/connections/ssh.js";
 
 interface ServiceScreenProps {
   conn: ConnectionConfig;
@@ -76,6 +77,8 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
         setItems(buckets);
       } else if (conn.type === "http") {
         setItems(["GET /", "GET /health", "GET /status", "GET /api", "GET /docs"]);
+      } else if (conn.type === "ssh") {
+        setItems(["exec <command>", "sysinfo", "disk", "mem", "procs", "net"]);
       } else {
         const db = manager as DatabaseManager;
         try {
@@ -265,6 +268,102 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       }
     }
 
+    // SSH commands
+    if (conn.type === "ssh") {
+      const ssh = getManager(conn.type) as SshManager;
+      if (command === "exec") {
+        const cmd = trimmed.slice(5).trim();
+        if (!cmd) {
+          setStatus("[!] Usage: exec <command>");
+          return;
+        }
+        try {
+          const result = await ssh.exec(conn, cmd);
+          const lines: string[] = [];
+          if (result.stdout) {
+            for (const line of result.stdout.split("\n").slice(0, 100)) {
+              lines.push(`  ${line}`);
+            }
+          }
+          if (result.stderr) {
+            lines.push("  stderr:");
+            for (const line of result.stderr.split("\n").slice(0, 20)) {
+              lines.push(`  ${line}`);
+            }
+          }
+          if (result.exitCode !== 0) {
+            lines.push(`  [exit: ${result.exitCode}]`);
+          }
+          setOverlayContent(lines.length > 0 ? lines : ["  (no output)"]);
+          setOverlay(`exec: ${cmd}`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "sysinfo") {
+        try {
+          const info = await ssh.getInfo(conn);
+          const lines = Object.entries(info).map(([k, v]) => `  ${k}: ${v}`);
+          setOverlayContent(lines);
+          setOverlay("system info");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "disk") {
+        try {
+          const result = await ssh.exec(conn, "df -h");
+          const lines = result.stdout.split("\n").map((l) => `  ${l}`);
+          setOverlayContent(lines);
+          setOverlay("disk usage");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "mem") {
+        try {
+          const result = await ssh.exec(conn, "free -h 2>/dev/null || free");
+          const lines = result.stdout.split("\n").map((l) => `  ${l}`);
+          setOverlayContent(lines);
+          setOverlay("memory");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "procs") {
+        try {
+          const result = await ssh.exec(conn, "ps aux | head -30");
+          const lines = result.stdout.split("\n").map((l) => `  ${l}`);
+          setOverlayContent(lines);
+          setOverlay("processes");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "net") {
+        try {
+          const result = await ssh.exec(conn, "ss -tlnp 2>/dev/null || netstat -tlnp");
+          const lines = result.stdout.split("\n").map((l) => `  ${l}`);
+          setOverlayContent(lines);
+          setOverlay("network");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+    }
+
     // Database commands (postgres, mongo, mysql)
     if (conn.type === "postgres" || conn.type === "mysql" || conn.type === "mongo") {
       const db = getManager(conn.type) as DatabaseManager;
@@ -440,7 +539,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
   });
 
   const visibleItems = items.slice(scrollOffset, scrollOffset + maxItems);
-  const itemLabel = conn.type === "s3" ? "Buckets" : conn.type === "redis" ? "Keys" : conn.type === "http" ? "Endpoints" : "Databases";
+  const itemLabel = conn.type === "s3" ? "Buckets" : conn.type === "redis" ? "Keys" : conn.type === "http" ? "Endpoints" : conn.type === "ssh" ? "Commands" : "Databases";
 
   const overlayLines = overlayContent.slice(overlayScroll, overlayScroll + Math.max(1, availH - BOX_OVERHEAD));
 
@@ -560,6 +659,7 @@ function getPlaceholder(type: string): string {
     case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · back";
     case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · back";
     case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · refresh · back";
+    case "ssh": return "exec <cmd> · sysinfo · disk · mem · procs · net · info · refresh · back";
     default: return "info · refresh · back";
   }
 }
@@ -601,24 +701,33 @@ function truncate(str: string, len: number): string {
   return str.slice(0, Math.max(1, len - 1)) + "…";
 }
 
-function formatHttpResponse(resp: { status: number; statusText: string; headers: Record<string, string>; body: string }): string[] {
+function formatHttpResponse(resp: { status: number; headers: Record<string, string>; body: unknown }): string[] {
   const lines: string[] = [];
-  lines.push(`  Status: ${resp.status} ${resp.statusText}`);
-  for (const [k, v] of Object.entries(resp.headers).slice(0, 10)) {
+  lines.push(`  Status: ${resp.status}`);
+  const headerEntries = Object.entries(resp.headers).slice(0, 10);
+  for (const [k, v] of headerEntries) {
     lines.push(`  ${k}: ${truncate(v, 80)}`);
   }
-  lines.push("");
-  lines.push("  Body:");
-  try {
-    const parsed = JSON.parse(resp.body);
-    const formatted = JSON.stringify(parsed, null, 2);
+  lines.push("  ─────");
+  if (typeof resp.body === "string") {
+    try {
+      const parsed = JSON.parse(resp.body);
+      const formatted = JSON.stringify(parsed, null, 2);
+      for (const line of formatted.split("\n").slice(0, 100)) {
+        lines.push(`  ${line}`);
+      }
+    } catch {
+      for (const line of resp.body.split("\n").slice(0, 100)) {
+        lines.push(`  ${line}`);
+      }
+    }
+  } else if (resp.body && typeof resp.body === "object") {
+    const formatted = JSON.stringify(resp.body, null, 2);
     for (const line of formatted.split("\n").slice(0, 100)) {
       lines.push(`  ${line}`);
     }
-  } catch {
-    for (const line of resp.body.split("\n").slice(0, 100)) {
-      lines.push(`  ${truncate(line, 200)}`);
-    }
+  } else {
+    lines.push("  (no body)");
   }
   return lines;
 }
