@@ -49,26 +49,15 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 
 ## Quick Start
 
-### One-command run (no install needed)
+### One-command install
 
 ```bash
-npx qore-orchestrator
+curl -fsSL https://github.com/Kodjaoglanian/qore/releases/latest/download/install.sh | bash
 ```
 
-This downloads and runs Qore automatically. The only requirement is the [Bun](https://bun.sh) runtime. If Bun is not installed, Qore will print instructions on how to install it.
-
-### Install Bun (if needed)
+This downloads the latest precompiled binary for your platform and installs it to `~/.local/bin/qore`. After installation, run:
 
 ```bash
-curl -fsSL https://bun.sh/install | bash
-# or
-npm install -g bun
-```
-
-### Global install
-
-```bash
-npm install -g qore-orchestrator
 qore
 ```
 
@@ -98,6 +87,12 @@ bun run build
 ---
 
 ## Installation
+
+### One-command install (recommended)
+
+```bash
+curl -fsSL https://github.com/Kodjaoglanian/qore/releases/latest/download/install.sh | bash
+```
 
 ### From source
 
