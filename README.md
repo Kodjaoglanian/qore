@@ -49,6 +49,31 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 
 ## Quick Start
 
+### One-command run (no install needed)
+
+```bash
+npx qore-orchestrator
+```
+
+This downloads and runs Qore automatically. The only requirement is the [Bun](https://bun.sh) runtime. If Bun is not installed, Qore will print instructions on how to install it.
+
+### Install Bun (if needed)
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+# or
+npm install -g bun
+```
+
+### Global install
+
+```bash
+npm install -g qore-orchestrator
+qore
+```
+
+### From source
+
 Requirements:
 
 - [Bun](https://bun.sh) runtime (version 1.1 or newer)

@@ -1,15 +1,55 @@
 {
-  "name": "qore",
+  "name": "qore-orchestrator",
   "version": "0.1.0",
   "description": "Ultra-lightweight, single-binary hybrid infrastructure orchestrator with a terminal-native TUI.",
   "type": "module",
   "main": "src/index.tsx",
+  "bin": {
+    "qore": "bin/qore.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE",
+    "tsconfig.json"
+  ],
   "scripts": {
     "dev": "bun run src/index.tsx",
     "start": "bun run src/index.tsx",
     "build": "bun build src/index.tsx --compile --outfile qore",
     "tsc": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "prepublishOnly": "node ./node_modules/typescript/bin/tsc --noEmit && bun test"
+  },
+  "keywords": [
+    "infrastructure",
+    "orchestrator",
+    "tui",
+    "terminal",
+    "docker",
+    "redis",
+    "postgres",
+    "mongodb",
+    "s3",
+    "bun",
+    "ink",
+    "cli",
+    "devops",
+    "localstack"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kodjaoglanian/qore.git"
+  },
+  "homepage": "https://github.com/Kodjaoglanian/qore#readme",
+  "bugs": {
+    "url": "https://github.com/Kodjaoglanian/qore/issues"
+  },
+  "license": "MIT",
+  "author": "",
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "@types/pg": "^8.20.0",
