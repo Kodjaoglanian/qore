@@ -2,7 +2,10 @@ import type { ConnectionConfig, ConnectionType } from "../vault/types.js";
 import { RedisManager } from "./redis.js";
 import { S3Manager } from "./s3.js";
 import { PostgresManager } from "./postgres.js";
+import { MysqlManager } from "./mysql.js";
 import { MongoManager } from "./mongo.js";
+import { HttpManager } from "./http.js";
+import { SshManager } from "./ssh.js";
 
 export interface ConnectionManager {
   testConnection(config: ConnectionConfig): Promise<boolean>;
@@ -51,7 +54,10 @@ export function getManager(type: ConnectionType): ConnectionManager | null {
     case "redis": return new RedisManager();
     case "s3": return new S3Manager();
     case "postgres": return new PostgresManager();
+    case "mysql": return new MysqlManager();
     case "mongo": return new MongoManager();
+    case "http": return new HttpManager();
+    case "ssh": return new SshManager();
     default: return null;
   }
 }
