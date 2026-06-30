@@ -4,6 +4,7 @@ import { S3Manager } from "./s3.js";
 import { PostgresManager } from "./postgres.js";
 import { MysqlManager } from "./mysql.js";
 import { MongoManager } from "./mongo.js";
+import { HttpManager } from "./http.js";
 
 export interface ConnectionManager {
   testConnection(config: ConnectionConfig): Promise<boolean>;
@@ -54,6 +55,7 @@ export function getManager(type: ConnectionType): ConnectionManager | null {
     case "postgres": return new PostgresManager();
     case "mysql": return new MysqlManager();
     case "mongo": return new MongoManager();
+    case "http": return new HttpManager();
     default: return null;
   }
 }

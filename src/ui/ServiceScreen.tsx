@@ -13,6 +13,7 @@ import { getManager } from "../core/connections/manager.js";
 import type { RedisManager } from "../core/connections/redis.js";
 import type { S3Manager } from "../core/connections/s3.js";
 import type { DatabaseManager, StorageManager, QueryResult, ObjectInfo } from "../core/connections/manager.js";
+import type { HttpManager } from "../core/connections/http.js";
 
 interface ServiceScreenProps {
   conn: ConnectionConfig;
@@ -73,6 +74,8 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
         const s3 = manager as StorageManager;
         const buckets = await s3.listBuckets(conn);
         setItems(buckets);
+      } else if (conn.type === "http") {
+        setItems(["GET /", "GET /health", "GET /status", "GET /api", "GET /docs"]);
       } else {
         const db = manager as DatabaseManager;
         try {
@@ -187,6 +190,74 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
           setStatus(`[ok] Deleted bucket: ${parts[1]}`);
           const buckets = await s3.listBuckets(conn);
           setItems(buckets);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+    }
+
+    // HTTP commands
+    if (conn.type === "http") {
+      const http = getManager(conn.type) as HttpManager;
+      if (command === "get" && parts[1]) {
+        try {
+          const resp = await http.get(conn, parts[1]);
+          const lines = formatHttpResponse(resp);
+          setOverlayContent(lines);
+          setOverlay(`GET ${parts[1]} (${resp.status})`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "post" && parts[1]) {
+        try {
+          const body = parts[2] ? trimmed.slice(trimmed.indexOf(parts[1]) + parts[1].length).trim() : "";
+          const resp = await http.post(conn, parts[1], body);
+          const lines = formatHttpResponse(resp);
+          setOverlayContent(lines);
+          setOverlay(`POST ${parts[1]} (${resp.status})`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "put" && parts[1]) {
+        try {
+          const body = parts[2] ? trimmed.slice(trimmed.indexOf(parts[1]) + parts[1].length).trim() : "";
+          const resp = await http.put(conn, parts[1], body);
+          const lines = formatHttpResponse(resp);
+          setOverlayContent(lines);
+          setOverlay(`PUT ${parts[1]} (${resp.status})`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "patch" && parts[1]) {
+        try {
+          const body = parts[2] ? trimmed.slice(trimmed.indexOf(parts[1]) + parts[1].length).trim() : "";
+          const resp = await http.patch(conn, parts[1], body);
+          const lines = formatHttpResponse(resp);
+          setOverlayContent(lines);
+          setOverlay(`PATCH ${parts[1]} (${resp.status})`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "delete" && parts[1]) {
+        try {
+          const resp = await http.delete(conn, parts[1]);
+          const lines = formatHttpResponse(resp);
+          setOverlayContent(lines);
+          setOverlay(`DELETE ${parts[1]} (${resp.status})`);
+          setOverlayScroll(0);
         } catch (err) {
           setStatus(`[!] ${(err as Error).message}`);
         }
@@ -369,7 +440,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
   });
 
   const visibleItems = items.slice(scrollOffset, scrollOffset + maxItems);
-  const itemLabel = conn.type === "s3" ? "Buckets" : conn.type === "redis" ? "Keys" : "Databases";
+  const itemLabel = conn.type === "s3" ? "Buckets" : conn.type === "redis" ? "Keys" : conn.type === "http" ? "Endpoints" : "Databases";
 
   const overlayLines = overlayContent.slice(overlayScroll, overlayScroll + Math.max(1, availH - BOX_OVERHEAD));
 
@@ -488,6 +559,7 @@ function getPlaceholder(type: string): string {
     case "postgres":
     case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · back";
     case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · back";
+    case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · refresh · back";
     default: return "info · refresh · back";
   }
 }
@@ -527,4 +599,26 @@ function pad(str: string, len: number): string {
 function truncate(str: string, len: number): string {
   if (str.length <= len) return str;
   return str.slice(0, Math.max(1, len - 1)) + "…";
+}
+
+function formatHttpResponse(resp: { status: number; statusText: string; headers: Record<string, string>; body: string }): string[] {
+  const lines: string[] = [];
+  lines.push(`  Status: ${resp.status} ${resp.statusText}`);
+  for (const [k, v] of Object.entries(resp.headers).slice(0, 10)) {
+    lines.push(`  ${k}: ${truncate(v, 80)}`);
+  }
+  lines.push("");
+  lines.push("  Body:");
+  try {
+    const parsed = JSON.parse(resp.body);
+    const formatted = JSON.stringify(parsed, null, 2);
+    for (const line of formatted.split("\n").slice(0, 100)) {
+      lines.push(`  ${line}`);
+    }
+  } catch {
+    for (const line of resp.body.split("\n").slice(0, 100)) {
+      lines.push(`  ${truncate(line, 200)}`);
+    }
+  }
+  return lines;
 }
