@@ -32,8 +32,11 @@ jobs:
       - name: Build binary
         run: bun build src/index.tsx --compile --outfile qore --external react-devtools-core
 
+      - name: Rename binary with platform suffix
+        run: mv qore qore-linux-x64
+
       - name: Make binary executable
-        run: chmod +x qore
+        run: chmod +x qore-linux-x64
 
       - name: Make install script executable
         run: chmod +x scripts/install.sh
@@ -117,5 +120,5 @@ jobs:
           name: Qore ${{ steps.version.outputs.VERSION }}
           body: ${{ steps.changelog.outputs.BODY }}
           files: |
-            qore
+            qore-linux-x64
             scripts/install.sh
