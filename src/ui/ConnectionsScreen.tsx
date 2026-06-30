@@ -1,0 +1,387 @@
+import React, { useState, useCallback } from "react";
+import { Box, Text, useInput } from "ink";
+import { colors } from "./theme.js";
+import { useTerminalSize } from "./hooks/useTerminalSize.js";
+import { StyledBox } from "./components/Box.js";
+import { InputBar } from "./components/InputBar.js";
+import { ShortcutBar } from "./components/ShortcutBar.js";
+import { Breadcrumb } from "./components/Breadcrumb.js";
+import { ProgressBar } from "./components/ProgressBar.js";
+import type { Vault } from "../core/vault/vault.js";
+import type { ConnectionConfig, ConnectionType } from "../core/vault/types.js";
+import { CONNECTION_LABELS, CONNECTION_ICONS, DEFAULT_PORTS } from "../core/vault/types.js";
+import { getManager } from "../core/connections/manager.js";
+
+interface ConnectionsScreenProps {
+  vault: Vault;
+  onConnect: (conn: ConnectionConfig) => void;
+  onBack: () => void;
+}
+
+type View = "list" | "add" | "edit";
+
+export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScreenProps) {
+  const { width: termWidth, height: termHeight } = useTerminalSize();
+  const margin = Math.max(1, Math.floor(termWidth * 0.03));
+  const innerWidth = Math.max(40, termWidth - margin * 2 - 4);
+
+  const [view, setView] = useState<View>("list");
+  const [connections, setConnections] = useState<ConnectionConfig[]>(vault.getConnections());
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const [status, setStatus] = useState<string | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
+
+  // Add form state
+  const [formStep, setFormStep] = useState(0);
+  const [formData, setFormData] = useState<Partial<ConnectionConfig>>({
+    type: "redis",
+    host: "localhost",
+    port: 6379,
+    useTls: false,
+  });
+
+  const refreshList = useCallback(() => {
+    setConnections(vault.getConnections());
+  }, [vault]);
+
+  const testConnection = useCallback(async (conn: ConnectionConfig) => {
+    setTesting(conn.id);
+    setStatus(`Testing ${conn.name}...`);
+    try {
+      const manager = getManager(conn.type);
+      if (!manager) {
+        setStatus(`No manager for type: ${conn.type}`);
+        return;
+      }
+      const ok = await manager.testConnection(conn);
+      setStatus(ok ? `[ok] ${conn.name} — connected` : `[!] ${conn.name} — failed`);
+    } catch (err) {
+      setStatus(`[!] ${conn.name} — ${(err as Error).message}`);
+    } finally {
+      setTesting(null);
+    }
+  }, []);
+
+  const handleFormInput = useCallback((value: string) => {
+    const lower = value.toLowerCase();
+
+    if (formStep === 0) {
+      const validTypes: ConnectionType[] = ["redis", "postgres", "mysql", "mongo", "s3"];
+      if (validTypes.includes(lower as ConnectionType)) {
+        const type = lower as ConnectionType;
+        setFormData((d) => ({ ...d, type, port: DEFAULT_PORTS[type] }));
+        setFormStep(1);
+        setStatus(`[ok] Type: ${CONNECTION_LABELS[type]} · Enter connection name:`);
+      } else {
+        setStatus(`Invalid type. Use: ${validTypes.join(" · ")}`);
+      }
+      return;
+    }
+
+    if (formStep === 1) {
+      if (!value) {
+        setStatus("Name is required. Enter a connection name:");
+        return;
+      }
+      setFormData((d) => ({ ...d, name: value }));
+      setFormStep(2);
+      setStatus(`[ok] Name: ${value} · Enter host (default: localhost):`);
+      return;
+    }
+
+    if (formStep === 2) {
+      const host = value || "localhost";
+      setFormData((d) => ({ ...d, host }));
+      setFormStep(3);
+      setStatus(`[ok] Host: ${host} · Enter port (default: ${formData.port}):`);
+      return;
+    }
+
+    if (formStep === 3) {
+      const port = parseInt(value, 10);
+      const finalPort = isNaN(port) ? formData.port : port;
+      setFormData((d) => ({ ...d, port: finalPort }));
+      setFormStep(4);
+      setStatus(`[ok] Port: ${finalPort} · Enter username (or Enter to skip):`);
+      return;
+    }
+
+    if (formStep === 4) {
+      setFormData((d) => ({ ...d, username: value || undefined }));
+      setFormStep(5);
+      setStatus("Enter password (or Enter to skip):");
+      return;
+    }
+
+    if (formStep === 5) {
+      setFormData((d) => ({ ...d, password: value || undefined }));
+      if (formData.type === "s3") {
+        setFormStep(6);
+        setStatus("Enter API key:");
+        return;
+      }
+      setFormStep(7);
+      setStatus("Use TLS? (yes/no):");
+      return;
+    }
+
+    if (formStep === 6) {
+      setFormData((d) => ({ ...d, apiKey: value || undefined }));
+      setFormStep(6.5);
+      setStatus("Enter API secret:");
+      return;
+    }
+
+    if (formStep === 6.5) {
+      setFormData((d) => ({ ...d, apiSecret: value || undefined }));
+      setFormStep(7);
+      setStatus("Use TLS? (yes/no):");
+      return;
+    }
+
+    if (formStep === 7) {
+      const useTls = lower === "yes" || lower === "y" || lower === "true";
+      const finalData = { ...formData, useTls };
+      try {
+        vault.addConnection(finalData as Omit<ConnectionConfig, "id">);
+        refreshList();
+        setView("list");
+        setFormStep(0);
+        setStatus(`[ok] Added: ${finalData.name}`);
+      } catch (err) {
+        setStatus(`Error: ${(err as Error).message}`);
+      }
+      return;
+    }
+  }, [formStep, formData, vault, refreshList]);
+
+  const handleSubmit = useCallback((cmd: string) => {
+    const trimmed = cmd.trim();
+    const lower = trimmed.toLowerCase();
+
+    if (view === "add") {
+      handleFormInput(trimmed);
+      return;
+    }
+
+    // Empty submit = connect to selected
+    if (!trimmed) {
+      if (connections.length > 0) {
+        onConnect(connections[selectedIdx]);
+      }
+      return;
+    }
+
+    const parts = lower.split(/\s+/);
+    const command = parts[0];
+
+    if (command === "add") {
+      setView("add");
+      setFormStep(0);
+      setFormData({ type: "redis", host: "localhost", port: 6379, useTls: false });
+      setStatus("Type: redis · postgres · mysql · mongo · s3");
+      return;
+    }
+
+    if (command === "back" || command === "home") {
+      onBack();
+      return;
+    }
+
+    if (command === "connect") {
+      if (parts[1]) {
+        const idx = parseInt(parts[1], 10) - 1;
+        if (idx >= 0 && idx < connections.length) {
+          onConnect(connections[idx]);
+        }
+      } else if (connections.length > 0) {
+        onConnect(connections[selectedIdx]);
+      }
+      return;
+    }
+
+    if (command === "test") {
+      if (parts[1]) {
+        const idx = parseInt(parts[1], 10) - 1;
+        if (idx >= 0 && idx < connections.length) {
+          testConnection(connections[idx]);
+        }
+      } else if (connections.length > 0) {
+        testConnection(connections[selectedIdx]);
+      }
+      return;
+    }
+
+    if (command === "rm" && parts[1]) {
+      const idx = parseInt(parts[1], 10) - 1;
+      if (idx >= 0 && idx < connections.length) {
+        vault.removeConnection(connections[idx].id);
+        refreshList();
+        setStatus(`Removed: ${connections[idx].name}`);
+      }
+      return;
+    }
+
+    if (command === "refresh") {
+      refreshList();
+      setStatus("Refreshed");
+      return;
+    }
+  }, [view, connections, selectedIdx, vault, onBack, refreshList, handleFormInput, testConnection, onConnect]);
+
+  useInput((input, key) => {
+    if (key.escape) {
+      if (view !== "list") {
+        setView("list");
+        setFormStep(0);
+        setStatus(null);
+      } else {
+        onBack();
+      }
+      return;
+    }
+    if (view !== "list") return;
+    if (key.upArrow) setSelectedIdx((i) => Math.max(0, i - 1));
+    if (key.downArrow) setSelectedIdx((i) => Math.min(connections.length - 1, i + 1));
+  });
+
+  const headerH = 2;
+  const footerH = 5;
+  const availH = Math.max(6, termHeight - headerH - footerH);
+
+  return (
+    <Box flexDirection="column" width={termWidth} height={termHeight - 4} paddingX={margin} overflow="hidden">
+      <Box marginBottom={1} height={1}>
+        <Breadcrumb items={["Home", view === "add" ? "Add Connection" : "Connections"]} />
+      </Box>
+
+      <Box flexDirection="column" height={availH} overflow="hidden">
+        {view === "list" && (
+          <StyledBox title="Saved Connections" focused padding={1} height={availH} overflow="hidden">
+            <Box flexDirection="column">
+              {connections.length === 0 ? (
+                <Box flexDirection="column">
+                  <Text color={colors.textMuted}>{"  No connections saved."}</Text>
+                  <Box marginTop={1}>
+                    <Text color={colors.purple} bold>{"  Type \"add\" to create one"}</Text>
+                  </Box>
+                  <Box marginTop={1}>
+                    <Text color={colors.textDim}>{"  Or type \"back\" to return to menu"}</Text>
+                  </Box>
+                </Box>
+              ) : (
+                connections.map((conn, i) => (
+                  <Box key={conn.id} flexDirection="row">
+                    <Text color={i === selectedIdx ? colors.purple : colors.textDim}>
+                      {i === selectedIdx ? ">" : " "}{" "}
+                    </Text>
+                    <Text color={colors.textDim}>{i + 1}{"."}</Text>
+                    <Text color={i === selectedIdx ? colors.textBright : (i % 2 === 0 ? colors.text : colors.textMuted)}>
+                      {" "}{CONNECTION_ICONS[conn.type]} {conn.name}
+                    </Text>
+                    <Text color={i === selectedIdx ? colors.purpleBright : colors.textMuted}>
+                      {"  "}{conn.type} · {conn.host}:{conn.port}
+                    </Text>
+                    {testing === conn.id && (
+                      <Text color={colors.yellow}>{"  testing..."}</Text>
+                    )}
+                  </Box>
+                ))
+              )}
+              {status && (
+                <Box marginTop={1}>
+                  <Text color={status.startsWith("[ok]") ? colors.green : status.startsWith("[!]") ? colors.red : colors.textMuted}>
+                    {"  "}{status}
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          </StyledBox>
+        )}
+
+        {view === "add" && (
+          <StyledBox title="Add Connection" focused padding={1} height={availH} overflow="hidden">
+            <Box flexDirection="column">
+              <Box marginBottom={1} flexDirection="row" justifyContent="space-between">
+                <Text color={colors.purple} bold>
+                  {"  Step "}{Math.floor(formStep) + 1}{"/8"}{" — "}
+                  {formStep === 0 && "Connection type"}
+                  {formStep === 1 && "Name"}
+                  {formStep === 2 && "Host"}
+                  {formStep === 3 && "Port"}
+                  {formStep === 4 && "Username"}
+                  {formStep === 5 && "Password"}
+                  {formStep === 6 && "API Key"}
+                  {formStep === 6.5 && "API Secret"}
+                  {formStep === 7 && "TLS"}
+                </Text>
+                <ProgressBar current={Math.floor(formStep) + 1} total={8} />
+              </Box>
+
+              <Box flexDirection="column" marginBottom={1}>
+                <Text color={colors.textDim}>{"  Checklist:"}</Text>
+                <Text color={formData.type ? colors.green : colors.textMuted}>{"    [ok] type: "}<Text color={colors.purple}>{formData.type}</Text></Text>
+                <Text color={formData.name ? colors.green : colors.textMuted}>{"    "}{formData.name ? "[ok]" : "[  ]"}{" name: "}<Text color={formData.name ? colors.purple : colors.textDim}>{formData.name ?? "—"}</Text></Text>
+                <Text color={formData.host ? colors.green : colors.textMuted}>{"    "}{formData.host ? "[ok]" : "[  ]"}{" host: "}<Text color={formData.host ? colors.purple : colors.textDim}>{formData.host ?? "—"}</Text></Text>
+                <Text color={formData.port ? colors.green : colors.textMuted}>{"    "}{formData.port ? "[ok]" : "[  ]"}{" port: "}<Text color={formData.port ? colors.purple : colors.textDim}>{formData.port ?? "—"}</Text></Text>
+                <Text color={formData.username ? colors.green : colors.textMuted}>{"    "}{formData.username ? "[ok]" : "[  ]"}{" user: "}<Text color={formData.username ? colors.purple : colors.textDim}>{formData.username ?? "(skip)"}</Text></Text>
+                <Text color={formData.password ? colors.green : colors.textMuted}>{"    "}{formData.password ? "[ok]" : "[  ]"}{" pass: "}<Text color={formData.password ? colors.purple : colors.textDim}>{formData.password ? "****" : "(skip)"}</Text></Text>
+                {formData.type === "s3" && (
+                  <>
+                    <Text color={formData.apiKey ? colors.green : colors.textMuted}>{"    "}{formData.apiKey ? "[ok]" : "[  ]"}{" key: "}<Text color={formData.apiKey ? colors.purple : colors.textDim}>{formData.apiKey ?? "—"}</Text></Text>
+                    <Text color={formData.apiSecret ? colors.green : colors.textMuted}>{"    "}{formData.apiSecret ? "[ok]" : "[  ]"}{" secret: "}<Text color={formData.apiSecret ? colors.purple : colors.textDim}>{formData.apiSecret ? "****" : "—"}</Text></Text>
+                  </>
+                )}
+                <Text color={formStep > 7 ? colors.green : colors.textMuted}>{"    "}{formStep > 7 ? "[ok]" : "[  ]"}{" tls: "}<Text color={formStep > 7 ? colors.purple : colors.textDim}>{formStep > 7 ? String(formData.useTls) : "—"}</Text></Text>
+              </Box>
+
+              {formStep === 0 && (
+                <Text color={colors.textMuted}>{"  Options: redis · postgres · mysql · mongo · s3"}</Text>
+              )}
+
+              {status && (
+                <Box marginTop={1}>
+                  <Text color={status.startsWith("[ok]") ? colors.green : status.startsWith("[!]") ? colors.red : colors.textMuted}>
+                    {"  "}{status}
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          </StyledBox>
+        )}
+      </Box>
+
+      <Box marginTop={1}>
+        <InputBar
+          onSubmit={handleSubmit}
+          placeholder={view === "add" ? getFormPlaceholder(formStep) : "connect · add · test · rm <n> · back"}
+        />
+      </Box>
+
+      <Box marginTop={1}>
+        <ShortcutBar
+          shortcuts={[
+            { key: "Up/Dn", label: "select" },
+            { key: "Enter", label: "connect" },
+            { key: "esc", label: view === "add" ? "cancel" : "back" },
+          ]}
+        />
+      </Box>
+    </Box>
+  );
+}
+
+function getFormPlaceholder(step: number): string {
+  switch (step) {
+    case 0: return "redis · postgres · mysql · mongo · s3";
+    case 1: return "Connection name (e.g. My Redis)";
+    case 2: return "Host (default: localhost)";
+    case 3: return "Port (default shown above)";
+    case 4: return "Username (or Enter to skip)";
+    case 5: return "Password (or Enter to skip)";
+    case 6: return "API Key";
+    case 6.5: return "API Secret";
+    case 7: return "Use TLS? (yes/no)";
+    default: return "...";
+  }
+}
