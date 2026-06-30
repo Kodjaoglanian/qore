@@ -89,8 +89,8 @@ When modifying this repository, you MUST follow these constraints:
 - [x] Implement secure credential vault (AES-256-GCM + scrypt).
 - [x] Build connection managers for Redis, S3-compatible, PostgreSQL, MongoDB.
 - [x] Build ConnectionsScreen and ServiceScreen UI.
-- [ ] Add MySQL connection manager.
-- [ ] Add SSH remote connection manager.
-- [ ] Add HTTP API connection manager (generic REST).
-- [ ] Implement vault password change flow in UI.
-- [ ] Add connection import/export (encrypted bundle).
+- [x] Add MySQL connection manager.
+- [x] Add SSH remote connection manager.
+- [x] Add HTTP API connection manager (generic REST).
+- [x] Implement vault password change flow in UI.
+- [x] Add connection import/export (encrypted bundle).
