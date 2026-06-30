@@ -29,6 +29,9 @@ jobs:
       - name: Run tests
         run: bun test
 
+      - name: Patch ink devtools (remove react-devtools-core dependency)
+        run: bash scripts/prebuild.sh
+
       - name: Build binary
         run: bun build src/index.tsx --compile --outfile qore
 
