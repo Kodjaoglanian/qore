@@ -105,6 +105,64 @@ export class Vault {
     return true;
   }
 
+  exportConnections(password: string): string {
+    const salt = generateSalt();
+    const key = deriveKey(password, salt);
+    const json = JSON.stringify({
+      version: VAULT_VERSION,
+      exportedAt: new Date().toISOString(),
+      connections: this.data.connections,
+    });
+    const payload = encrypt(json, key);
+    const bundle = Buffer.concat([
+      Buffer.from("QOREX1\n"),
+      salt,
+      payload.nonce,
+      payload.tag,
+      payload.ciphertext,
+    ]);
+    zeroKey(key);
+    return bundle.toString("base64");
+  }
+
+  importConnections(bundle: string, password: string): number {
+    const raw = Buffer.from(bundle.trim(), "base64");
+    const magic = raw.subarray(0, 7).toString("utf8");
+    if (magic !== "QOREX1\n") {
+      throw new Error("Invalid bundle format");
+    }
+    const salt = raw.subarray(7, 23);
+    const nonce = raw.subarray(23, 35);
+    const tag = raw.subarray(35, 51);
+    const ciphertext = raw.subarray(51);
+    const key = deriveKey(password, salt);
+    try {
+      const json = decrypt({ ciphertext: Buffer.from(ciphertext), nonce: Buffer.from(nonce), tag: Buffer.from(tag) }, key);
+      const data = JSON.parse(json);
+      if (!data.connections || !Array.isArray(data.connections)) {
+        throw new Error("Invalid bundle content");
+      }
+      let added = 0;
+      for (const conn of data.connections) {
+        if (conn.id && conn.type && conn.host) {
+          const existing = this.data.connections.find((c) => c.id === conn.id);
+          if (existing) {
+            Object.assign(existing, conn);
+          } else {
+            this.data.connections.push(conn);
+          }
+          added++;
+        }
+      }
+      if (added > 0) this.save();
+      zeroKey(key);
+      return added;
+    } catch (err) {
+      zeroKey(key);
+      throw new Error("Failed to decrypt bundle: wrong password or corrupted data");
+    }
+  }
+
   private save(saltOverride?: Buffer): void {
     if (!this.key) throw new Error("Vault is locked");
     const salt = saltOverride ?? this.readMetaSalt();
