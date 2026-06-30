@@ -18,7 +18,7 @@ interface ConnectionsScreenProps {
   onBack: () => void;
 }
 
-type View = "list" | "add" | "edit";
+type View = "list" | "add" | "edit" | "changepw" | "export" | "import";
 
 export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalSize();
@@ -30,6 +30,13 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
+
+  const [pwStep, setPwStep] = useState(0);
+  const [oldPw, setOldPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [bundlePw, setBundlePw] = useState("");
+  const [bundleData, setBundleData] = useState("");
+  const [exportedBundle, setExportedBundle] = useState<string | null>(null);
 
   // Add form state
   const [formStep, setFormStep] = useState(0);
@@ -155,12 +162,111 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
     }
   }, [formStep, formData, vault, refreshList]);
 
+  const handlePwInput = useCallback((value: string) => {
+    if (view === "changepw") {
+      if (pwStep === 0) {
+        setOldPw(value);
+        setPwStep(1);
+        setStatus("[ok] Current password accepted. Enter new password:");
+        return;
+      }
+      if (pwStep === 1) {
+        if (value.length < 8) {
+          setStatus("[!] Password must be at least 8 characters. Try again:");
+          return;
+        }
+        setNewPw(value);
+        setPwStep(2);
+        setStatus("[ok] New password set. Confirm new password:");
+        return;
+      }
+      if (pwStep === 2) {
+        if (value !== newPw) {
+          setStatus("[!] Passwords do not match. Try again:");
+          setNewPw("");
+          setPwStep(1);
+          return;
+        }
+        try {
+          vault.changePassword(oldPw, newPw);
+          setStatus("[ok] Vault password changed successfully.");
+          setView("list");
+          setPwStep(0);
+          setOldPw("");
+          setNewPw("");
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+          setView("list");
+          setPwStep(0);
+          setOldPw("");
+          setNewPw("");
+        }
+        return;
+      }
+    }
+
+    if (view === "export") {
+      if (!bundlePw) {
+        if (value.length < 8) {
+          setStatus("[!] Password must be at least 8 characters. Try again:");
+          return;
+        }
+        setBundlePw(value);
+        setStatus("[ok] Password set. Confirm password:");
+        return;
+      }
+      if (value !== bundlePw) {
+        setStatus("[!] Passwords do not match. Try again:");
+        setBundlePw("");
+        return;
+      }
+      try {
+        const bundle = vault.exportConnections(value);
+        setExportedBundle(bundle);
+        setStatus("[ok] Export complete. Bundle shown above. Copy it to transfer.");
+      } catch (err) {
+        setStatus(`[!] ${(err as Error).message}`);
+      }
+      return;
+    }
+
+    if (view === "import") {
+      if (!bundleData) {
+        setBundleData(value);
+        setStatus("[ok] Bundle received. Enter decryption password:");
+        return;
+      }
+      if (!bundlePw) {
+        setBundlePw(value);
+        try {
+          const count = vault.importConnections(bundleData, value);
+          refreshList();
+          setStatus(`[ok] Imported ${count} connection(s) successfully.`);
+          setView("list");
+          setBundleData("");
+          setBundlePw("");
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+          setView("list");
+          setBundleData("");
+          setBundlePw("");
+        }
+        return;
+      }
+    }
+  }, [view, pwStep, oldPw, newPw, bundlePw, bundleData, vault, refreshList]);
+
   const handleSubmit = useCallback((cmd: string) => {
     const trimmed = cmd.trim();
     const lower = trimmed.toLowerCase();
 
     if (view === "add") {
       handleFormInput(trimmed);
+      return;
+    }
+
+    if (view === "changepw" || view === "export" || view === "import") {
+      handlePwInput(trimmed);
       return;
     }
 
@@ -222,18 +328,49 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
       return;
     }
 
+    if (command === "changepw") {
+      setView("changepw");
+      setPwStep(0);
+      setOldPw("");
+      setNewPw("");
+      setStatus("Enter current master password:");
+      return;
+    }
+
+    if (command === "export") {
+      setView("export");
+      setBundlePw("");
+      setExportedBundle(null);
+      setStatus("Enter a password to encrypt the export bundle:");
+      return;
+    }
+
+    if (command === "import") {
+      setView("import");
+      setBundlePw("");
+      setBundleData("");
+      setStatus("Paste the encrypted bundle string:");
+      return;
+    }
+
     if (command === "refresh") {
       refreshList();
       setStatus("Refreshed");
       return;
     }
-  }, [view, connections, selectedIdx, vault, onBack, refreshList, handleFormInput, testConnection, onConnect]);
+  }, [view, connections, selectedIdx, vault, onBack, refreshList, handleFormInput, handlePwInput, testConnection, onConnect]);
 
   useInput((input, key) => {
     if (key.escape) {
       if (view !== "list") {
         setView("list");
         setFormStep(0);
+        setPwStep(0);
+        setOldPw("");
+        setNewPw("");
+        setBundlePw("");
+        setBundleData("");
+        setExportedBundle(null);
         setStatus(null);
       } else {
         onBack();
@@ -349,12 +486,102 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
             </Box>
           </StyledBox>
         )}
+
+        {view === "changepw" && (
+          <StyledBox title="Change Vault Password" focused padding={1} height={availH} overflow="hidden">
+            <Box flexDirection="column">
+              <Box marginBottom={1} flexDirection="row" justifyContent="space-between">
+                <Text color={colors.purple} bold>
+                  {"  Step "}{pwStep + 1}{"/3"}{" — "}
+                  {pwStep === 0 && "Current password"}
+                  {pwStep === 1 && "New password"}
+                  {pwStep === 2 && "Confirm new password"}
+                </Text>
+                <ProgressBar current={pwStep + 1} total={3} />
+              </Box>
+
+              <Box flexDirection="column" marginBottom={1}>
+                <Text color={colors.textDim}>{"  Progress:"}</Text>
+                <Text color={pwStep > 0 ? colors.green : colors.textMuted}>{"    "}{pwStep > 0 ? "[ok]" : "[  ]"}{" current password"}</Text>
+                <Text color={pwStep > 1 ? colors.green : colors.textMuted}>{"    "}{pwStep > 1 ? "[ok]" : "[  ]"}{" new password"}</Text>
+                <Text color={pwStep > 2 ? colors.green : colors.textMuted}>{"    "}{pwStep > 2 ? "[ok]" : "[  ]"}{" confirmed"}</Text>
+              </Box>
+
+              <Box marginTop={1}>
+                <Text color={colors.textMuted}>{"  Min 8 characters. All credentials re-encrypted on change."}</Text>
+              </Box>
+
+              {status && (
+                <Box marginTop={1}>
+                  <Text color={status.startsWith("[ok]") ? colors.green : status.startsWith("[!]") ? colors.red : colors.textMuted}>
+                    {"  "}{status}
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          </StyledBox>
+        )}
+
+        {view === "export" && (
+          <StyledBox title="Export Connections" focused padding={1} height={availH} overflow="hidden">
+            <Box flexDirection="column">
+              <Text color={colors.textMuted}>{"  Export all connections into an encrypted bundle."}</Text>
+              <Text color={colors.textMuted}>{"  The bundle is encrypted with a separate password."}</Text>
+              <Box marginTop={1}>
+                <Text color={colors.textDim}>{"  Steps: password -> confirm -> generate bundle"}</Text>
+              </Box>
+
+              {exportedBundle && (
+                <Box marginTop={1} flexDirection="column">
+                  <Text color={colors.green} bold>{"  [ok] Encrypted bundle (copy this):"}</Text>
+                  <Box marginTop={1} paddingX={1}>
+                    <Text color={colors.text} wrap="truncate">{exportedBundle.slice(0, 500)}{exportedBundle.length > 500 ? "..." : ""}</Text>
+                  </Box>
+                </Box>
+              )}
+
+              {status && (
+                <Box marginTop={1}>
+                  <Text color={status.startsWith("[ok]") ? colors.green : status.startsWith("[!]") ? colors.red : colors.textMuted}>
+                    {"  "}{status}
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          </StyledBox>
+        )}
+
+        {view === "import" && (
+          <StyledBox title="Import Connections" focused padding={1} height={availH} overflow="hidden">
+            <Box flexDirection="column">
+              <Text color={colors.textMuted}>{"  Import connections from an encrypted bundle."}</Text>
+              <Text color={colors.textMuted}>{"  Steps: paste bundle -> enter password -> import"}</Text>
+
+              <Box marginTop={1} flexDirection="column">
+                <Text color={bundleData ? colors.green : colors.textMuted}>
+                  {"  "}{bundleData ? "[ok]" : "[  ]"}{" bundle received"}
+                </Text>
+                <Text color={bundlePw ? colors.green : colors.textMuted}>
+                  {"  "}{bundlePw ? "[ok]" : "[  ]"}{" password entered"}
+                </Text>
+              </Box>
+
+              {status && (
+                <Box marginTop={1}>
+                  <Text color={status.startsWith("[ok]") ? colors.green : status.startsWith("[!]") ? colors.red : colors.textMuted}>
+                    {"  "}{status}
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          </StyledBox>
+        )}
       </Box>
 
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
-          placeholder={view === "add" ? getFormPlaceholder(formStep) : "connect · add · test · rm <n> · back"}
+          placeholder={view === "add" ? getFormPlaceholder(formStep) : view === "changepw" ? getPwPlaceholder(pwStep) : view === "export" ? (exportedBundle ? "done - press esc to return" : "Encryption password (min 8 chars)") : view === "import" ? (bundleData ? "Decryption password" : "Paste bundle string") : "connect · add · test · rm <n> · changepw · export · import · back"}
         />
       </Box>
 
@@ -382,6 +609,15 @@ function getFormPlaceholder(step: number): string {
     case 6: return "API Key";
     case 6.5: return "API Secret";
     case 7: return "Use TLS? (yes/no)";
+    default: return "...";
+  }
+}
+
+function getPwPlaceholder(step: number): string {
+  switch (step) {
+    case 0: return "Current master password";
+    case 1: return "New master password (min 8 chars)";
+    case 2: return "Confirm new master password";
     default: return "...";
   }
 }
