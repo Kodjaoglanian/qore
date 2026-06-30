@@ -42,12 +42,80 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
 
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"%s" --no-merges)
+          else
+            COMMITS=$(git log ${PREV_TAG}..HEAD --pretty=format:"%s" --no-merges)
+          fi
+
+          {
+            echo "BODY<<EOF"
+            echo "## Install"
+            echo ""
+            echo "```bash"
+            echo "curl -fsSL https://github.com/Kodjaoglanian/qore/releases/latest/download/install.sh | bash"
+            echo "```"
+            echo ""
+
+            FEATS=$(echo "$COMMITS" | grep -iE "^feat" || true)
+            FIXES=$(echo "$COMMITS" | grep -iE "^fix" || true)
+            DOCS=$(echo "$COMMITS" | grep -iE "^docs" || true)
+            REFACTORS=$(echo "$COMMITS" | grep -iE "^refactor" || true)
+            TESTS=$(echo "$COMMITS" | grep -iE "^test" || true)
+            CHORES=$(echo "$COMMITS" | grep -iE "^chore|^ci" || true)
+            OTHER=$(echo "$COMMITS" | grep -viE "^(feat|fix|docs|refactor|test|chore|ci)" || true)
+
+            if [ -n "$FEATS" ]; then
+              echo "### New Features"
+              echo "$FEATS" | sed 's/feat(\([^)]*\)):/**\1**:/; s/^feat:/**feature**:/; s/^/- /'
+              echo ""
+            fi
+            if [ -n "$FIXES" ]; then
+              echo "### Bug Fixes"
+              echo "$FIXES" | sed 's/fix(\([^)]*\)):/**\1**:/; s/^fix:/**fix**:/; s/^/- /'
+              echo ""
+            fi
+            if [ -n "$REFACTORS" ]; then
+              echo "### Refactoring"
+              echo "$REFACTORS" | sed 's/refactor(\([^)]*\)):/**\1**:/; s/^refactor:/**refactor**:/; s/^/- /'
+              echo ""
+            fi
+            if [ -n "$DOCS" ]; then
+              echo "### Documentation"
+              echo "$DOCS" | sed 's/docs(\([^)]*\)):/**\1**:/; s/^docs:/**docs**:/; s/^/- /'
+              echo ""
+            fi
+            if [ -n "$TESTS" ]; then
+              echo "### Tests"
+              echo "$TESTS" | sed 's/test(\([^)]*\)):/**\1**:/; s/^test:/**test**:/; s/^/- /'
+              echo ""
+            fi
+            if [ -n "$CHORES" ]; then
+              echo "### Maintenance"
+              echo "$CHORES" | sed 's/chore(\([^)]*\)):/**\1**:/; s/^chore:/**chore**:/; s/^ci(\([^)]*\)):/**ci:\1**:/; s/^ci:/**ci**:/; s/^/- /'
+              echo ""
+            fi
+            if [ -n "$OTHER" ]; then
+              echo "### Other Changes"
+              echo "$OTHER" | sed 's/^/- /'
+              echo ""
+            fi
+
+            echo "---"
+            echo "**Full changelog:** https://github.com/Kodjaoglanian/qore/compare/${PREV_TAG:-$(git rev-list --max-parents=0 HEAD | head -1)}...${GITHUB_REF_NAME}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.VERSION }}
           name: Qore ${{ steps.version.outputs.VERSION }}
-          generate_release_notes: true
+          body: ${{ steps.changelog.outputs.BODY }}
           files: |
             qore
             scripts/install.sh
