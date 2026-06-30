@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "bun run src/index.tsx",
     "start": "bun run src/index.tsx",
-    "build": "bun build src/index.tsx --compile --outfile qore --external react-devtools-core",
+    "build": "bun build src/index.tsx --compile --outfile qore",
     "tsc": "tsc --noEmit",
     "test": "bun test"
   },
@@ -40,7 +40,8 @@
     "ink": "^5.0.1",
     "mongodb": "^7.4.0",
     "pg": "^8.22.0",
-    "react": "^18.3.1"
+    "react": "^18.3.1",
+    "react-devtools-core": "^4.28.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

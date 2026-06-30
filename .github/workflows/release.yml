@@ -30,7 +30,7 @@ jobs:
         run: bun test
 
       - name: Build binary
-        run: bun build src/index.tsx --compile --outfile qore --external react-devtools-core
+        run: bun build src/index.tsx --compile --outfile qore
 
       - name: Rename binary with platform suffix
         run: mv qore qore-linux-x64
