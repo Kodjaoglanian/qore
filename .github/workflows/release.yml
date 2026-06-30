@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Type check
+        run: node ./node_modules/typescript/bin/tsc --noEmit
+
+      - name: Run tests
+        run: bun test
+
+      - name: Build binary
+        run: bun build src/index.tsx --compile --outfile qore --external react-devtools-core
+
+      - name: Make binary executable
+        run: chmod +x qore
+
+      - name: Make install script executable
+        run: chmod +x scripts/install.sh
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: Qore ${{ steps.version.outputs.VERSION }}
+          generate_release_notes: true
+          files: |
+            qore
+            scripts/install.sh
