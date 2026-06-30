@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Box, Text, useApp, useInput, useStdin } from "ink";
 import { colors } from "./theme.js";
+import pkg from "../../package.json" with { type: "json" };
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
 import { DiscoverScreen } from "./DiscoverScreen.js";
@@ -163,7 +164,7 @@ export function App() {
       </Box>
       <Box width={termWidth} height={1} paddingX={1} justifyContent="space-between">
         <Text color={colors.purpleDim}>Qore</Text>
-        <Text color={colors.textMuted}>v0.2.0</Text>
+        <Text color={colors.textMuted}>v{pkg.version}</Text>
         <Text color={colors.borderMuted}>│</Text>
         <Text color={colors.textMuted}>Vault {vault?.isUnlocked() ? "[unlocked]" : "[locked]"}</Text>
       </Box>
