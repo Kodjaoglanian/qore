@@ -212,7 +212,7 @@ export function App() {
                   tabCount={activeConns.length}
                   tabIdx={i}
                   focused={i === activeIdx}
-                  heightOffset={activeConns.length > 1 ? 2 : 0}
+                  heightOffset={4 + (activeConns.length > 1 ? 2 : 0)}
                 />
               </Box>
             ))}

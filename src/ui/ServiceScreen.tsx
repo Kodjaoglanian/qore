@@ -55,9 +55,8 @@ export function ServiceScreen({ conn, onBack, onClose, focused = true, heightOff
   const [favorites, setFavorites] = useState<string[]>([]);
 
   const availH = Math.max(8, effectiveHeight - HEADER - FOOTER);
-  const listH = Math.floor(availH * 0.45);
-  const infoH = Math.floor(availH * 0.30);
-  const inputAreaH = Math.max(4, availH - listH - infoH);
+  const listH = Math.floor(availH * 0.55);
+  const infoH = Math.floor(availH * 0.35);
 
   const maxItems = Math.max(1, listH - BOX_OVERHEAD);
 
@@ -1418,7 +1417,7 @@ export function ServiceScreen({ conn, onBack, onClose, focused = true, heightOff
         </Box>
       )}
 
-      <Box flexDirection="column" flexGrow={1} justifyContent="flex-end" overflow="hidden" marginTop={1}>
+      <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
           focused={focused}
@@ -1445,9 +1444,10 @@ export function ServiceScreen({ conn, onBack, onClose, focused = true, heightOff
           history={cmdHistory}
           completions={[...items, ...favorites]}
         />
+      </Box>
 
-        <Box marginTop={1}>
-          <ShortcutBar
+      <Box marginTop={1}>
+        <ShortcutBar
           shortcuts={isStreaming ? [
             { key: "Enter", label: "send input" },
             { key: "esc", label: "cancel" },
@@ -1458,7 +1458,6 @@ export function ServiceScreen({ conn, onBack, onClose, focused = true, heightOff
             { key: "esc", label: "back" },
           ]}
         />
-      </Box>
       </Box>
     </Box>
   );
