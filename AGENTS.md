@@ -49,23 +49,26 @@ Manages encrypted credentials for all external connections.
 
 - `crypto.ts`: scrypt key derivation (N=2^17, r=8, p=1) + AES-256-GCM authenticated encryption using `node:crypto`.
 - `vault.ts`: Manages `~/.qore/vault.enc` — init, unlock, add/update/remove connections, change password. Key is zeroed on lock.
-- `types.ts`: `ConnectionConfig` interface — generic, supports redis, postgres, mysql, mongo, s3, http.
+- `types.ts`: `ConnectionConfig` interface — generic, supports redis, postgres, mysql, mongo, s3, http, ssh.
 
 ### 2c. Connection Managers (`src/core/connections/`)
 
 Protocol-level integrations with real services. No mocks, no vendor lock-in.
 
-- `manager.ts`: Common interfaces (`ConnectionManager`, `DatabaseManager`, `StorageManager`) + factory.
-- `redis.ts`: RESP protocol via `Bun.connect` — PING, INFO, KEYS, GET/SET, DEL, FLUSHDB. Works with Redis, Valkey, DragonflyDB, KeyDB.
+- `manager.ts`: Common interfaces (`ConnectionManager` with optional `getLogs`, `DatabaseManager`, `StorageManager`) + factory.
+- `redis.ts`: RESP protocol via `Bun.connect` — PING, INFO, KEYS, GET/SET, DEL, FLUSHDB, SLOWLOG. Works with Redis, Valkey, DragonflyDB, KeyDB.
 - `s3.ts`: S3 REST API with AWS Signature V4 signing via `fetch`. Works with MinIO, RustFS, SeaweedFS, Cloudflare R2, AWS S3.
 - `postgres.ts`: PostgreSQL wire protocol via `pg` driver. Works with PostgreSQL, CockroachDB, YugabyteDB.
+- `mysql.ts`: MySQL driver via `mysql2/promise`. Works with MySQL, MariaDB.
 - `mongo.ts`: MongoDB wire protocol via `mongodb` driver. Works with MongoDB, FerretDB.
+- `http.ts`: Generic HTTP/REST client via `fetch`. GET, POST, PUT, PATCH, DELETE.
+- `ssh.ts`: SSH remote manager via `ssh2`. Exec commands, SFTP upload/download, journalctl/syslog logs, Docker container management, systemd service control. PTY only for sudo commands.
 
 ### 3. TUI & Render Pipeline (`src/ui/`)
 
 - The UI must match the `torlink` visual identity: clean box-drawing characters (`┌ ┐ └ ┘ ─ │`), minimalist text-based tabs, and no bloated layouts.
 - Colors are strictly defined: Dark Backgrounds, Electric Purple highlights (`#A370F7`) for active focus/borders, and Muted Blue-Grays (`#5C5B66`) for background context/shortcuts.
-- **Screens**: Welcome -> Discover (Docker/ports/daemons) -> Vault (unlock/create) -> Connections (list/add/test) -> Service (type-specific management: Redis/S3/Postgres/Mongo).
+- **Screens**: Welcome -> Discover (Docker/ports/daemons) -> Vault (unlock/create) -> Connections (list/add/test) -> Service (type-specific management: Redis/S3/Postgres/MySQL/Mongo/HTTP/SSH).
 - **Input Model**: InputBar is always focused. Commands are typed + Enter. Only arrow keys/tab/escape are handled by `useInput` for navigation. No single-key shortcuts that conflict with typing.
 
 ---
@@ -97,9 +100,11 @@ When modifying this repository, you MUST follow these constraints:
 - [x] Multi-platform CI builds (Linux x64/arm64, macOS arm64, Windows x64).
 - [x] Self-updating via `qore update` CLI command.
 - [x] Windows PowerShell install script (install.ps1).
+- [x] Service log aggregation (`getLogs` in all managers: SSH/Redis/Postgres/MySQL/Mongo/HTTP).
+- [x] SSH toolkit expansion: file ops, service control, Docker management, SFTP transfer, process/network utilities.
 
 ### Next Features
 
-- [ ] Service log aggregation and health checks.
+- [ ] Service health checks and monitoring dashboard.
 - [ ] Local emulated S3 and Pub/Sub providers.
 - [ ] Multi-architecture CI matrix for ARM native builds.
