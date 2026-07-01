@@ -2,7 +2,7 @@
 
 Ultra-lightweight, single-binary hybrid infrastructure orchestrator with a terminal-native TUI.
 
-Built for developers who manage local services, containers, and cloud-compatible resources from the terminal without leaving the keyboard. Qore scans the environment, stores credentials securely, and exposes a consistent command interface for Redis, PostgreSQL, MongoDB, S3-compatible storage, and HTTP APIs.
+Built for developers who manage local services, containers, and cloud-compatible resources from the terminal without leaving the keyboard. Qore scans the environment, stores credentials securely, and exposes a consistent command interface for Redis, PostgreSQL, MongoDB, S3-compatible storage, HTTP APIs, and SSH servers.
 
 ---
 
@@ -47,7 +47,7 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 - **Self-Updating**: Run `qore update` to download the latest version automatically.
 - **Multi-Platform**: Prebuilt binaries for Linux (x64/arm64), macOS (Apple Silicon), and Windows (x64).
 - **Keyboard-First TUI**: Type commands, use arrow keys for selection, and press Escape to navigate back.
-- **Multi-Connection Tabs**: Open multiple service connections simultaneously and switch between them with Ctrl+Tab / Ctrl+Arrow keys.
+- **Multi-Connection Tabs**: Open multiple service connections simultaneously and switch between them with Ctrl+Tab / Ctrl+Arrow keys. All tabs stay mounted — connections remain active and state is preserved when switching.
 - **Command History**: Navigate previous commands with Up/Down arrows when the input bar has text.
 - **Tab Autocomplete**: Press Tab to cycle through matching commands.
 - **Favorites**: Star frequently used commands with `star <cmd>` and recall them with `favorites`.
@@ -57,6 +57,7 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 - **Database Export**: Export table data to CSV files.
 - **Query Analysis**: Run EXPLAIN plans and monitor slow queries across PostgreSQL, MySQL, and MongoDB.
 - **S3 File Management**: Upload, download, delete objects, and generate pre-signed URLs.
+- **CI/CD Pipeline**: Automated testing, building, and releasing via GitHub Actions with 4-platform binary compilation.
 
 ---
 
@@ -102,7 +103,7 @@ git clone https://github.com/Kodjaoglanian/qore.git
 cd qore
 
 # Install dependencies
-npm install --no-bin-links
+bun install
 
 # Run the TUI in development mode
 bun run dev
@@ -126,7 +127,7 @@ curl -fsSL https://github.com/Kodjaoglanian/qore/releases/latest/download/instal
 ```bash
 git clone https://github.com/Kodjaoglanian/qore.git
 cd qore
-npm install --no-bin-links
+bun install
 bun run build
 ./qore
 ```
@@ -414,8 +415,12 @@ bun test
 {
   "dev": "bun run src/index.tsx",
   "start": "bun run src/index.tsx",
-  "build": "bun build src/index.tsx --compile --outfile qore",
-  "test": "bun test"
+  "build": "bash scripts/prebuild.sh && bun build src/index.tsx --compile --outfile qore",
+  "tsc": "tsc --noEmit",
+  "test": "bun test",
+  "pretag": "bun run tsc && bun test",
+  "release:patch": "bun run pretag && npm version patch --no-git-tag-version && git add -A && git commit -m \"chore: bump version\" && git tag v$(node -p \"require('./package.json').version\") && git push origin main --tags",
+  "release:minor": "bun run pretag && npm version minor --no-git-tag-version && git add -A && git commit -m \"chore: bump version\" && git tag v$(node -p \"require('./package.json').version\") && git push origin main --tags"
 }
 ```
 
@@ -447,6 +452,28 @@ bun run build
 
 This produces a single `qore` binary in the project root. The binary can be moved to any directory in `PATH`.
 
+### CI/CD Pipeline
+
+The project uses 3 GitHub Actions workflows:
+
+- **CI** (`ci.yml`): Runs `tsc` + tests + build smoke test on every push/PR to `main`.
+- **Build** (`build.yml`): Reusable workflow that compiles binaries for 4 platforms with caching and smoke tests.
+- **Release** (`release.yml`): Triggered by tag push `v*.*.*`. Builds all platforms, verifies artifacts, auto-generates changelog, and creates GitHub Release.
+
+Bun version is pinned to `1.2.0` for reproducible builds.
+
+### Releasing
+
+```bash
+# Patch release (automated: tsc + test + bump + tag + push)
+bun run release:patch
+
+# Minor release
+bun run release:minor
+```
+
+The CI pipeline handles the rest — building, changelog generation, and GitHub Release creation.
+
 ---
 
 ## Roadmap
@@ -472,12 +499,17 @@ Implemented:
 - Security & infrastructure: security-audit, server snapshots, snapshot diff
 - DevOps: deploy scripts, git-status, Docker Compose management
 - quit/exit command from any screen
+- Multi-connection: all tabs rendered simultaneously, state preserved on switch
+- Multi-connection: Ctrl+Tab / Ctrl+Arrows switching, close command to disconnect
+- CI/CD: 3-workflow pipeline with cache, smoke tests, pinned bun, automated releases
 
 Planned:
 
 - Service health checks and monitoring dashboard
 - Local emulated S3 and Pub/Sub providers
 - Multi-architecture CI matrix for ARM native builds
+- Expanded test coverage (connection managers, SSH commands, UI components)
+- Linting (eslint/biome) in CI pipeline
 
 ---
 

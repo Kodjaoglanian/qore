@@ -70,8 +70,9 @@ Protocol-level integrations with real services. No mocks, no vendor lock-in.
 - Colors are strictly defined: Dark Backgrounds, Electric Purple highlights (`#A370F7`) for active focus/borders, and Muted Blue-Grays (`#5C5B66`) for background context/shortcuts.
 - **Screens**: Welcome -> Discover (Docker/ports/daemons) -> Vault (unlock/create) -> Connections (list/add/test) -> Service (type-specific management: Redis/S3/Postgres/MySQL/Mongo/HTTP/SSH).
 - **Input Model**: InputBar is always focused. Commands are typed + Enter. Arrow keys navigate command list when input is empty, or navigate command history when input has text. Tab cycles autocomplete. No single-key shortcuts that conflict with typing.
-- **Multi-Connection**: Multiple service connections can be open simultaneously as tabs. Switch with Ctrl+Tab / Ctrl+Arrows. Each ServiceScreen instance is keyed by connection ID.
+- **Multi-Connection**: Multiple service connections can be open simultaneously as tabs. Switch with Ctrl+Tab / Ctrl+Arrows. All ServiceScreen instances are rendered simultaneously — inactive tabs use `display="none"` and `focused={false}` to preserve state (connection, history, items) without remounting. Only the active tab captures keyboard input via `useInput({ isActive: focused })`.
 - **Favorites**: Starred commands stored in `~/.qore/favorites.json`. Use `star <cmd>` / `unstar <cmd>` / `favorites`.
+- **Close vs Back**: `back` returns to Connections screen without closing the tab (connection stays active). `close` disconnects and removes the tab entirely.
 - **Snapshots**: SSH server state snapshots saved to `~/.qore/snapshots/` as JSON files. Compare with `diff <s1> <s2>`.
 
 ---
@@ -84,6 +85,47 @@ When modifying this repository, you MUST follow these constraints:
 2. **Preserve TrueColor Capabilities**: Do not fall back to standard 8-color ANSI layout schemes. Ensure the UI components support full 24-bit TrueColor palettes to maintain the aesthetic fidelity of the design.
 3. **Strict Thread Safety**: The emulated messaging queues (Pub/Sub) and proxy routers run concurrently with the main TUI render loop. Ensure all local memory structures are thread-safe and don't block the main event loop.
 4. **No Code Disruption**: When implementing automated features like the AI Log Doctor, safely wrap execution sandboxes or API integrations so they never crash the core orchestrator runtime if an external service becomes unavailable.
+5. **Layout Height Awareness**: `ServiceScreen` receives a `heightOffset` prop from `App.tsx` to account for the App's overhead (4 lines: StatusBar + borders + footer) plus the tab bar (2 lines when visible). All height calculations inside `ServiceScreen` use `effectiveHeight = termHeight - heightOffset`. Never use raw `termHeight` for layout — always use `effectiveHeight`.
+6. **Multi-Tab Rendering**: All `ServiceScreen` instances must remain mounted simultaneously. Inactive tabs use `display="none"` — never conditionally mount/unmount. The `focused` prop controls which tab captures input via `useInput({ isActive: focused })`. This preserves connection state and prevents reconnection on tab switch.
+7. **Input Coordination**: `InputBar` handles all keyboard input when `focused=true`. Arrow keys navigate history (with text) or command list (empty input) via `onNavigate`. `Ctrl+Tab` is handled by `App.tsx` — `InputBar` skips Tab handling when Ctrl is pressed. `ServiceScreen`'s `useInput` is gated by `isActive: focused && !ptyHandle`.
+
+---
+
+## CI/CD Pipeline (`.github/workflows/`)
+
+The pipeline is split into 3 workflows:
+
+### `ci.yml` — runs on every push/PR to `main`
+- **Job `quality`**: `bun run tsc` + `bun test` (with dependency cache)
+- **Job `build-smoke`**: compiles a linux-x64 binary and verifies it starts
+- Uses `concurrency` to cancel superseded runs
+
+### `build.yml` — reusable build workflow
+- Matrix: linux-x64, linux-arm64, darwin-arm64, windows-x64
+- Caches `node_modules` per OS + `package.json` hash
+- Smoke tests binary after compile (non-Windows)
+- Artifact retention: 14 days
+
+### `release.yml` — runs on tag push `v*.*.*`
+- Calls `build.yml` via `workflow_call` (DRY — no build duplication)
+- Verifies all 4 artifacts exist before creating release
+- Auto-generates changelog from conventional commits (feat/fix/refactor/docs/test/chore)
+- Attaches binaries + install scripts to GitHub Release
+
+### Release commands
+
+```bash
+# Validate before tagging
+bun run pretag        # runs tsc + test
+
+# Automated patch release (tsc + test + bump + tag + push)
+bun run release:patch
+
+# Automated minor release
+bun run release:minor
+```
+
+**Bun version is pinned to 1.2.0** in all workflows for reproducible builds.
 
 ---
 
@@ -113,9 +155,15 @@ When modifying this repository, you MUST follow these constraints:
 - [x] Database: export to CSV, EXPLAIN query plan, slow queries monitoring.
 - [x] S3: upload, download, delete objects, pre-signed URLs (AWS SigV4).
 - [x] quit/exit command from any screen (process.exit fallback for active SSH).
+- [x] Multi-connection: all tabs rendered simultaneously, state preserved on switch.
+- [x] Multi-connection: Ctrl+Tab / Ctrl+Arrows switching, `close` command to disconnect.
+- [x] CI/CD: 3-workflow pipeline (ci.yml, build.yml, release.yml) with cache, smoke tests, pinned bun.
+- [x] CI/CD: automated release scripts (`release:patch`, `release:minor`).
 
 ### Next Features
 
 - [ ] Service health checks and monitoring dashboard.
 - [ ] Local emulated S3 and Pub/Sub providers.
 - [ ] Multi-architecture CI matrix for ARM native builds.
+- [ ] Expand test coverage (connection managers, SSH commands, UI components).
+- [ ] Add linting (eslint/biome) to CI pipeline.
