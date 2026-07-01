@@ -32,6 +32,11 @@ DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${ASSET_NAME}"
 # Create install directory
 mkdir -p "$INSTALL_DIR"
 
+# Check if existing install needs update
+if [ -f "${INSTALL_DIR}/${BINARY_NAME}" ]; then
+  echo "  Existing Qore installation found. Updating..."
+fi
+
 # Download the binary
 echo "  Downloading Qore for ${OS}/${ARCH}..."
 if command -v curl &> /dev/null; then
@@ -60,4 +65,6 @@ case ":$PATH:" in
     ;;
 esac
 
+echo ""
+echo "  To update later, run: qore update"
 echo ""

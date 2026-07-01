@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,20 +29,83 @@ jobs:
       - name: Run tests
         run: bun test
 
-      - name: Patch ink devtools (remove react-devtools-core dependency)
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: bun-linux-x64
+            asset: qore-linux-x64
+          - os: ubuntu-latest
+            target: bun-linux-arm64
+            asset: qore-linux-arm64
+          - os: macos-latest
+            target: bun-darwin-arm64
+            asset: qore-darwin-arm64
+          - os: macos-13
+            target: bun-darwin-x64
+            asset: qore-darwin-x64
+          - os: windows-latest
+            target: bun-windows-x64
+            asset: qore-windows-x64.exe
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Patch ink devtools
         run: bash scripts/prebuild.sh
+        if: runner.os != 'Windows'
+
+      - name: Patch ink devtools (Windows)
+        shell: bash
+        run: bash scripts/prebuild.sh
+        if: runner.os == 'Windows'
 
       - name: Build binary
-        run: bun build src/index.tsx --compile --outfile qore
+        run: bun build src/index.tsx --compile --target ${{ matrix.target }} --outfile qore
 
-      - name: Rename binary with platform suffix
-        run: mv qore qore-linux-x64
+      - name: Rename binary
+        shell: bash
+        run: |
+          mv qore ${{ matrix.asset }}
+          chmod +x ${{ matrix.asset }}
 
-      - name: Make binary executable
-        run: chmod +x qore-linux-x64
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Make install script executable
         run: chmod +x scripts/install.sh
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
 
       - name: Get version from tag
         id: version
@@ -62,9 +125,33 @@ jobs:
             echo "BODY<<EOF"
             echo "## Install"
             echo ""
-            echo "```bash"
+            echo "### Linux / macOS"
+            echo ""
+            echo "\`\`\`bash"
             echo "curl -fsSL https://github.com/Kodjaoglanian/qore/releases/latest/download/install.sh | bash"
-            echo "```"
+            echo "\`\`\`"
+            echo ""
+            echo "### Windows (PowerShell)"
+            echo ""
+            echo "\`\`\`powershell"
+            echo "irm https://github.com/Kodjaoglanian/qore/releases/latest/download/install.ps1 | iex"
+            echo "\`\`\`"
+            echo ""
+            echo "### Manual download"
+            echo ""
+            echo "| Platform | Asset |"
+            echo "|----------|-------|"
+            echo "| Linux x64 | \`qore-linux-x64\` |"
+            echo "| Linux arm64 | \`qore-linux-arm64\` |"
+            echo "| macOS arm64 (Apple Silicon) | \`qore-darwin-arm64\` |"
+            echo "| macOS x64 (Intel) | \`qore-darwin-x64\` |"
+            echo "| Windows x64 | \`qore-windows-x64.exe\` |"
+            echo ""
+            echo "Or update an existing install with:"
+            echo ""
+            echo "\`\`\`bash"
+            echo "qore update"
+            echo "\`\`\`"
             echo ""
 
             FEATS=$(echo "$COMMITS" | grep -iE "^feat" || true)
@@ -123,5 +210,10 @@ jobs:
           name: Qore ${{ steps.version.outputs.VERSION }}
           body: ${{ steps.changelog.outputs.BODY }}
           files: |
-            qore-linux-x64
+            artifacts/qore-linux-x64
+            artifacts/qore-linux-arm64
+            artifacts/qore-darwin-arm64
+            artifacts/qore-darwin-x64
+            artifacts/qore-windows-x64.exe
             scripts/install.sh
+            scripts/install.ps1
