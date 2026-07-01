@@ -8,6 +8,25 @@ export interface SshResult {
   stderr: string;
 }
 
+function stripAnsi(str: string): string {
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+}
+
+function normalizeCr(str: string): string {
+  const lines = str.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes("\r")) {
+      const parts = lines[i].split("\r");
+      lines[i] = parts[parts.length - 1] ?? "";
+    }
+  }
+  return lines.join("\n");
+}
+
+function cleanOutput(str: string): string {
+  return normalizeCr(stripAnsi(str));
+}
+
 export class SshManager implements ConnectionManager {
   async testConnection(config: ConnectionConfig): Promise<boolean> {
     try {
@@ -81,6 +100,8 @@ export class SshManager implements ConnectionManager {
           stream.on("close", (code: number) => {
             clearTimeout(timeout);
             client.end();
+            stdout = cleanOutput(stdout);
+            stderr = cleanOutput(stderr);
             if (hasSudo && config.password) {
               const lines = stdout.split("\n");
               if (lines[0] && /[Pp]assword/.test(lines[0])) {
