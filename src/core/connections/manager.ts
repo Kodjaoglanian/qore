@@ -39,6 +39,7 @@ export interface StorageManager extends ConnectionManager {
   deleteObject(config: ConnectionConfig, bucket: string, key: string): Promise<void>;
   createBucket(config: ConnectionConfig, name: string): Promise<void>;
   deleteBucket(config: ConnectionConfig, name: string): Promise<void>;
+  presignUrl?(config: ConnectionConfig, bucket: string, key: string, expires?: number): Promise<string>;
 }
 
 export interface QueryResult {

@@ -86,7 +86,13 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       } else if (conn.type === "s3") {
         const s3 = manager as StorageManager;
         const buckets = await s3.listBuckets(conn);
-        setItems(buckets);
+        setItems([
+          ...buckets,
+          "ls <bucket>", "mkbucket <name>", "rmbucket <name>",
+          "upload <local> <bucket/key>", "download <bucket/key> <local>",
+          "rm <bucket> <key>", "presign <bucket> <key>",
+          "info", "refresh", "back",
+        ]);
       } else if (conn.type === "http") {
         setItems(["GET /", "GET /health", "GET /status", "GET /api", "GET /docs"]);
       } else if (conn.type === "ssh") {
@@ -275,6 +281,74 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
           setStatus(`[ok] Deleted bucket: ${parts[1]}`);
           const buckets = await s3.listBuckets(conn);
           setItems(buckets);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "upload" && rawParts[1] && rawParts[2]) {
+        try {
+          const localFile = rawParts[1];
+          const bucketKey = rawParts[2];
+          const slashIdx = bucketKey.indexOf("/");
+          if (slashIdx < 1) {
+            setStatus("[!] Usage: upload <local> <bucket/key>");
+            return;
+          }
+          const bucket = bucketKey.slice(0, slashIdx);
+          const key = bucketKey.slice(slashIdx + 1);
+          const { readFileSync } = await import("node:fs");
+          const data = readFileSync(localFile);
+          await s3.uploadObject(conn, bucket, key, data);
+          setStatus(`[ok] Uploaded ${localFile} → ${bucket}/${key} (${formatSize(data.length)})`);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "download" && rawParts[1] && rawParts[2]) {
+        try {
+          const bucketKey = rawParts[1];
+          const localFile = rawParts[2];
+          const slashIdx = bucketKey.indexOf("/");
+          if (slashIdx < 1) {
+            setStatus("[!] Usage: download <bucket/key> <local>");
+            return;
+          }
+          const bucket = bucketKey.slice(0, slashIdx);
+          const key = bucketKey.slice(slashIdx + 1);
+          const data = await s3.downloadObject(conn, bucket, key);
+          const { writeFileSync } = await import("node:fs");
+          writeFileSync(localFile, data);
+          setStatus(`[ok] Downloaded ${bucket}/${key} → ${localFile} (${formatSize(data.length)})`);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "rm" && rawParts[1] && rawParts[2]) {
+        try {
+          const bucket = rawParts[1];
+          const key = rawParts[2];
+          await s3.deleteObject(conn, bucket, key);
+          setStatus(`[ok] Deleted ${bucket}/${key}`);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "presign" && rawParts[1] && rawParts[2]) {
+        try {
+          const bucket = rawParts[1];
+          const key = rawParts[2];
+          if (!s3.presignUrl) {
+            setStatus("[!] Presign not supported");
+            return;
+          }
+          const url = await s3.presignUrl(conn, bucket, key);
+          setOverlayContent([`  ${url}`]);
+          setOverlay("presigned URL");
+          setOverlayScroll(0);
         } catch (err) {
           setStatus(`[!] ${(err as Error).message}`);
         }
@@ -1211,7 +1285,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
 function getPlaceholder(type: string): string {
   switch (type) {
     case "redis": return "get <key> · set <key> <val> · del <key> · keys <pattern> · flushdb · info · logs · refresh · back";
-    case "s3": return "ls <bucket> · mkbucket <name> · rmbucket <name> · info · refresh · back";
+    case "s3": return "ls <bucket> · mkbucket <name> · rmbucket <name> · upload <local> <bucket/key> · download <bucket/key> <local> · rm <bucket> <key> · presign <bucket> <key> · info · refresh · back";
     case "postgres":
     case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · export <db> <t> · explain <db> <sql> · slow-queries · logs · back";
     case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · export <db> <coll> · explain <db> <json> · slow-queries · logs · back";

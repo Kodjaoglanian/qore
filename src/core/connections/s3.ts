@@ -68,6 +68,45 @@ export class S3Manager implements StorageManager {
     await this.request(config, "DELETE", `/${name}`);
   }
 
+  async presignUrl(config: ConnectionConfig, bucket: string, key: string, expires = 3600): Promise<string> {
+    const endpoint = this.getEndpoint(config);
+    const path = `/${bucket}/${key}`;
+    const accessKey = config.apiKey ?? config.username ?? "";
+    const secretKey = config.apiSecret ?? config.password ?? "";
+    const region = config.region ?? "us-east-1";
+
+    if (!accessKey || !secretKey) {
+      throw new Error("S3 credentials not configured");
+    }
+
+    const now = new Date();
+    const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+    const dateStamp = amzDate.slice(0, 8);
+
+    const credentialScope = `${dateStamp}/${region}/s3/aws4_request`;
+    const credential = `${accessKey}/${credentialScope}`;
+
+    const canonicalHeaders = `host:${config.host}:${config.port}\n`;
+    const signedHeaders = "host";
+
+    const canonicalQuery = [
+      `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
+      `X-Amz-Credential=${encodeURIComponent(credential)}`,
+      `X-Amz-Date=${amzDate}`,
+      `X-Amz-Expires=${expires}`,
+      `X-Amz-SignedHeaders=${signedHeaders}`,
+    ].join("&");
+
+    const payloadHash = createHash("sha256").digest("hex");
+    const canonicalRequest = `GET\n${path}\n${canonicalQuery}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+
+    const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${createHash("sha256").update(canonicalRequest).digest("hex")}`;
+    const signingKey = getSigningKey(secretKey, dateStamp, region);
+    const signature = createHmac("sha256", signingKey).update(stringToSign).digest("hex");
+
+    return `${endpoint}${path}?${canonicalQuery}&X-Amz-Signature=${signature}`;
+  }
+
   private getEndpoint(config: ConnectionConfig): string {
     const proto = config.useTls ? "https" : "http";
     return `${proto}://${config.host}:${config.port}`;
