@@ -116,13 +116,13 @@ export class SshManager implements ConnectionManager {
     });
   }
 
-  async exec(config: ConnectionConfig, command: string): Promise<SshResult> {
+  async exec(config: ConnectionConfig, command: string, timeoutMs?: number): Promise<SshResult> {
     const client = await this.connectClient(config);
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         client.end();
         reject(new Error("Command execution timed out"));
-      }, 20000);
+      }, timeoutMs ?? 30000);
 
       const hasSudo = /\bsudo\b/.test(command);
       const finalCommand = hasSudo && config.password
@@ -140,6 +140,73 @@ export class SshManager implements ConnectionManager {
         let stdout = "";
         let stderr = "";
         stream.on("data", (data: Buffer) => { stdout += data.toString(); });
+        stream.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+
+        if (hasSudo && config.password) {
+          stream.write(config.password + "\n");
+        }
+
+        stream.on("close", (code: number) => {
+          clearTimeout(timeout);
+          client.end();
+          stdout = cleanOutput(stdout);
+          stderr = cleanOutput(stderr);
+          if (hasSudo && config.password) {
+            const lines = stdout.split("\n");
+            if (lines[0] && /[Pp]assword/.test(lines[0])) {
+              lines.shift();
+            }
+            stdout = lines.join("\n");
+          }
+          resolve({ exitCode: code ?? 0, stdout, stderr });
+        });
+      });
+    });
+  }
+
+  async execStream(
+    config: ConnectionConfig,
+    command: string,
+    onData: (chunk: string) => void,
+    timeoutMs?: number,
+  ): Promise<SshResult> {
+    const client = await this.connectClient(config);
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        client.end();
+        reject(new Error("Command execution timed out"));
+      }, timeoutMs ?? 120000);
+
+      const hasSudo = /\bsudo\b/.test(command);
+      const finalCommand = hasSudo && config.password
+        ? command.replace(/\bsudo\b/g, "sudo -S")
+        : command;
+
+      const execOpts: any = hasSudo ? { pty: true } : {};
+      client.exec(finalCommand, execOpts, (err: any, stream: any) => {
+        if (err) {
+          clearTimeout(timeout);
+          client.end();
+          reject(err);
+          return;
+        }
+        let stdout = "";
+        let stderr = "";
+        let firstData = true;
+
+        stream.on("data", (data: Buffer) => {
+          const raw = data.toString();
+          stdout += raw;
+          const cleaned = cleanOutput(raw);
+          if (cleaned) {
+            if (hasSudo && config.password && firstData && /[Pp]assword/.test(cleaned)) {
+              firstData = false;
+              return;
+            }
+            firstData = false;
+            onData(cleaned);
+          }
+        });
         stream.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
 
         if (hasSudo && config.password) {
