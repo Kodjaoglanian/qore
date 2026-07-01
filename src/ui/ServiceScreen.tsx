@@ -309,28 +309,47 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
           setStatus("[!] Usage: exec <command>");
           return;
         }
+        setOverlay(`exec: ${cmd}`);
+        const acc: string[] = [];
+        const overlayH = Math.max(1, availH - BOX_OVERHEAD);
+        const pushLines = (text: string) => {
+          for (const line of text.split("\n")) {
+            if (line.length || acc.length > 0) acc.push(`  ${line}`);
+          }
+          if (acc.length > 500) acc.splice(0, acc.length - 500);
+          setOverlayContent([...acc]);
+          setOverlayScroll(Math.max(0, acc.length - overlayH));
+        };
+        setOverlayContent(["  [running...]"]);
+        setOverlayScroll(0);
         try {
-          const result = await ssh.exec(conn, cmd);
-          const lines: string[] = [];
+          const result = await ssh.execStream(conn, cmd, (chunk: string) => {
+            pushLines(chunk);
+          });
+          acc.length = 0;
           if (result.stdout) {
-            for (const line of result.stdout.split("\n").slice(0, 100)) {
-              lines.push(`  ${line}`);
+            for (const line of result.stdout.split("\n").slice(0, 500)) {
+              acc.push(`  ${line}`);
             }
           }
-          if (result.stderr) {
-            lines.push("  stderr:");
+          if (result.stderr && result.stderr.trim()) {
+            acc.push("  stderr:");
             for (const line of result.stderr.split("\n").slice(0, 20)) {
-              lines.push(`  ${line}`);
+              acc.push(`  ${line}`);
             }
           }
           if (result.exitCode !== 0) {
-            lines.push(`  [exit: ${result.exitCode}]`);
+            acc.push(`  [exit: ${result.exitCode}]`);
           }
-          setOverlayContent(lines.length > 0 ? lines : ["  (no output)"]);
-          setOverlay(`exec: ${cmd}`);
-          setOverlayScroll(0);
+          setOverlayContent(acc.length > 0 ? [...acc] : ["  (no output)"]);
+          setOverlayScroll(Math.max(0, acc.length - overlayH));
         } catch (err) {
-          setStatus(`[!] ${(err as Error).message}`);
+          if (acc.length === 0) {
+            setOverlayContent([`  [!] ${(err as Error).message}`]);
+          } else {
+            acc.push(`  [!] ${(err as Error).message}`);
+            setOverlayContent([...acc]);
+          }
         }
         return;
       }
@@ -538,10 +557,10 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       }
       if (command === "pkgs") {
         const search = trimmed.slice(4).trim();
-        const base = "(dpkg -l 2>/dev/null || rpm -qa 2>/dev/null || pacman -Q 2>/dev/null)";
+        const base = "(dpkg -l 2>/dev/null | tail -n +6 || rpm -qa 2>/dev/null || pacman -Q 2>/dev/null)";
         const cmd = search ? `${base} | grep -i ${search} | head -100` : `${base} | head -200`;
         try {
-          const result = await ssh.exec(conn, cmd);
+          const result = await ssh.exec(conn, cmd, 60000);
           setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
           setOverlay(search ? `pkgs: ${search}` : "packages");
           setOverlayScroll(0);
