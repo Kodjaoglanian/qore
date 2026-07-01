@@ -14,6 +14,15 @@ export interface ExecStreamHandle {
   cancel: () => void;
 }
 
+export interface PtyHandle {
+  stream: any;
+  client: any;
+  send: (data: string) => void;
+  resize: (cols: number, rows: number) => void;
+  close: () => Promise<SshResult>;
+  cancel: () => void;
+}
+
 function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
@@ -251,6 +260,67 @@ export class SshManager implements ConnectionManager {
         });
 
         resolve({ result, send, cancel });
+      });
+    });
+  }
+
+  async execPty(
+    config: ConnectionConfig,
+    command: string,
+    cols: number,
+    rows: number,
+    onData: (data: string) => void,
+  ): Promise<PtyHandle> {
+    const client = await this.connectClient(config);
+
+    return new Promise<PtyHandle>((resolve, reject) => {
+      const hasSudo = /\bsudo\b/.test(command);
+      const finalCommand = hasSudo && config.password
+        ? command.replace(/\bsudo\b/g, "sudo -S")
+        : command;
+
+      const ptyOpts = { term: "xterm-256color", cols, rows };
+      client.exec(finalCommand, { pty: ptyOpts }, (err: any, stream: any) => {
+        if (err) {
+          client.end();
+          reject(err);
+          return;
+        }
+
+        stream.on("data", (data: Buffer) => {
+          onData(data.toString());
+        });
+
+        if (hasSudo && config.password) {
+          stream.write(config.password + "\n");
+        }
+
+        const send = (input: string) => {
+          try { stream.write(input); } catch {}
+        };
+
+        const resize = (c: number, r: number) => {
+          try { stream.setWindow(r, c, 0, 0); } catch {}
+        };
+
+        const cancel = () => {
+          try { client.end(); } catch {}
+        };
+
+        const close = (): Promise<SshResult> => {
+          return new Promise((res) => {
+            let stdout = "";
+            let stderr = "";
+            stream.on("data", (d: Buffer) => { stdout += d.toString(); });
+            stream.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+            stream.on("close", (code: number) => {
+              client.end();
+              res({ exitCode: code ?? 0, stdout, stderr });
+            });
+          });
+        };
+
+        resolve({ stream, client, send, resize, close, cancel });
       });
     });
   }

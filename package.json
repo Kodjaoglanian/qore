@@ -1,6 +1,6 @@
 {
   "name": "qore",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Ultra-lightweight, single-binary hybrid infrastructure orchestrator with a terminal-native TUI.",
   "type": "module",
   "main": "src/index.tsx",
@@ -42,7 +42,8 @@
     "mysql2": "^3.11.0",
     "pg": "^8.22.0",
     "react": "^18.3.1",
-    "ssh2": "^1.16.0"
+    "ssh2": "^1.16.0",
+    "xterm-headless": "^5.3.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

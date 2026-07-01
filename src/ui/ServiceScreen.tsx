@@ -14,7 +14,8 @@ import type { RedisManager } from "../core/connections/redis.js";
 import type { S3Manager } from "../core/connections/s3.js";
 import type { DatabaseManager, StorageManager, QueryResult, ObjectInfo } from "../core/connections/manager.js";
 import type { HttpManager } from "../core/connections/http.js";
-import type { SshManager } from "../core/connections/ssh.js";
+import type { SshManager, PtyHandle } from "../core/connections/ssh.js";
+import { TerminalOverlay } from "./components/TerminalOverlay.js";
 
 interface ServiceScreenProps {
   conn: ConnectionConfig;
@@ -41,6 +42,8 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
   const [isStreaming, setIsStreaming] = useState(false);
   const streamSendRef = useRef<((input: string) => void) | null>(null);
   const streamCancelRef = useRef<(() => void) | null>(null);
+  const [ptyHandle, setPtyHandle] = useState<PtyHandle | null>(null);
+  const [ptyTitle, setPtyTitle] = useState("");
 
   const availH = Math.max(8, termHeight - HEADER - FOOTER);
   const listH = Math.floor(availH * 0.55);
@@ -311,62 +314,21 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
     if (conn.type === "ssh") {
       const ssh = getManager(conn.type) as SshManager;
       if (command === "exec") {
-        const rawCmd = trimmed.slice(5).trim();
-        if (!rawCmd) {
+        const cmd = trimmed.slice(5).trim();
+        if (!cmd) {
           setStatus("[!] Usage: exec <command>");
           return;
         }
-        const resolution = resolveInteractiveCommand(rawCmd);
-        if (resolution.blocked) {
-          setStatus(`[!] ${resolution.message}`);
-          return;
-        }
-        const cmd = resolution.cmd;
-        setOverlay(`exec: ${rawCmd}`);
-        const acc: string[] = resolution.note ? [`  [note] ${resolution.note}`] : [];
-        const overlayH = Math.max(1, availH - BOX_OVERHEAD);
-        const pushLines = (text: string) => {
-          for (const line of text.split("\n")) {
-            if (line.length || acc.length > 0) acc.push(`  ${line}`);
-          }
-          if (acc.length > 500) acc.splice(0, acc.length - 500);
-          setOverlayContent([...acc]);
-          setOverlayScroll(Math.max(0, acc.length - overlayH));
-        };
-        setOverlayContent(acc.length > 0 ? [...acc, "  [running...]"] : ["  [running...]"]);
-        setOverlayScroll(0);
+        setPtyTitle(`exec: ${cmd}`);
+        setOverlay(null);
+        setOverlayContent([]);
         try {
-          const handle = await ssh.execStream(conn, cmd, (chunk: string) => {
-            pushLines(chunk);
-          });
-          streamSendRef.current = handle.send;
-          streamCancelRef.current = handle.cancel;
-          setIsStreaming(true);
-          const result = await handle.result;
-          streamSendRef.current = null;
-          streamCancelRef.current = null;
-          setIsStreaming(false);
-          if (result.stderr && result.stderr.trim()) {
-            acc.push("  stderr:");
-            for (const line of result.stderr.split("\n").slice(0, 20)) {
-              acc.push(`  ${line}`);
-            }
-          }
-          if (result.exitCode !== 0) {
-            acc.push(`  [exit: ${result.exitCode}]`);
-          }
-          setOverlayContent(acc.length > 0 ? [...acc] : ["  (no output)"]);
-          setOverlayScroll(Math.max(0, acc.length - overlayH));
+          const termW = Math.min(process.stdout.columns || 80, 200);
+          const termH = Math.max(8, (process.stdout.rows || 24) - 6);
+          const pty = await ssh.execPty(conn, cmd, termW, termH, () => {});
+          setPtyHandle(pty);
         } catch (err) {
-          streamSendRef.current = null;
-          streamCancelRef.current = null;
-          setIsStreaming(false);
-          if (acc.length === 0) {
-            setOverlayContent([`  [!] ${(err as Error).message}`]);
-          } else {
-            acc.push(`  [!] ${(err as Error).message}`);
-            setOverlayContent([...acc]);
-          }
+          setStatus(`[!] ${(err as Error).message}`);
         }
         return;
       }
@@ -807,6 +769,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
   }, [conn, info, onBack, loadInitial]);
 
   useInput((input, key) => {
+    if (ptyHandle) return;
     if (overlay) {
       if (key.escape) {
         if (streamCancelRef.current) {
@@ -839,6 +802,35 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
   const itemLabel = conn.type === "s3" ? "Buckets" : conn.type === "redis" ? "Keys" : conn.type === "http" ? "Endpoints" : conn.type === "ssh" ? "Commands" : "Databases";
 
   const overlayLines = overlayContent.slice(overlayScroll, overlayScroll + Math.max(1, availH - BOX_OVERHEAD));
+
+  if (ptyHandle) {
+    return (
+      <Box flexDirection="column" width={termWidth} height={termHeight} paddingX={margin} overflow="hidden">
+        <Box marginBottom={1} height={1} flexDirection="row" justifyContent="space-between">
+          <Box flexDirection="row">
+            <Breadcrumb items={["Home", "Connections", `${CONNECTION_ICONS[conn.type]} ${conn.name}`]} />
+          </Box>
+          <Text color={colors.textMuted}>{CONNECTION_LABELS[conn.type]} · {conn.host}:{conn.port}</Text>
+        </Box>
+        <TerminalOverlay
+          pty={ptyHandle}
+          title={ptyTitle}
+          onDone={(result) => {
+            setPtyHandle(null);
+            if (result.exitCode !== 0) {
+              setStatus(`[exit: ${result.exitCode}]`);
+            } else {
+              setStatus("[ok] command completed");
+            }
+          }}
+          onCancel={() => {
+            setPtyHandle(null);
+            setStatus("[!] command cancelled");
+          }}
+        />
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column" width={termWidth} height={termHeight} paddingX={margin} overflow="hidden">
@@ -962,63 +954,6 @@ function getPlaceholder(type: string): string {
     case "ssh": return "exec <cmd> · ls · cat <f> · find <p> · services · svc <act> <n> · docker ps · users · cron · pkgs · kill <pid> · ping <h> · upload/download · logs · reboot yes · back";
     default: return "info · refresh · back";
   }
-}
-
-interface InteractiveResolution {
-  blocked: boolean;
-  message?: string;
-  cmd: string;
-  note?: string;
-}
-
-function resolveInteractiveCommand(cmd: string): InteractiveResolution {
-  const withoutSudo = cmd.replace(/^\s*sudo\s+/, "");
-  const bin = withoutSudo.trim().split(/\s+/)[0] || "";
-
-  const blockedApps: Record<string, string> = {
-    vim: "Interactive editors aren't supported here. Use `cat <file>` to view or `upload`/`download` to edit locally.",
-    vi: "Interactive editors aren't supported here. Use `cat <file>` to view or `upload`/`download` to edit locally.",
-    nano: "Interactive editors aren't supported here. Use `cat <file>` to view or `upload`/`download` to edit locally.",
-    emacs: "Interactive editors aren't supported here. Use `cat <file>` to view or `upload`/`download` to edit locally.",
-    tmux: "Terminal multiplexers aren't supported in this text-based view.",
-    screen: "Terminal multiplexers aren't supported in this text-based view.",
-    ssh: "Nested SSH sessions aren't supported here. Add the target as its own connection.",
-    mysql: "Interactive DB shells aren't supported here. Use the built-in database commands instead.",
-    psql: "Interactive DB shells aren't supported here. Use the built-in database commands instead.",
-    python: "Interactive REPLs aren't supported here. Pass a script instead, e.g. `python script.py`.",
-    python3: "Interactive REPLs aren't supported here. Pass a script instead, e.g. `python3 script.py`.",
-    node: "Interactive REPLs aren't supported here. Pass a script instead, e.g. `node script.js`.",
-    irb: "Interactive REPLs aren't supported here.",
-  };
-
-  if (blockedApps[bin]) {
-    return { blocked: true, message: blockedApps[bin], cmd };
-  }
-
-  if (bin === "htop") {
-    return { blocked: false, cmd: "top -bn1 | head -40", note: "htop needs a live terminal; showing a one-time snapshot via `top -bn1` instead." };
-  }
-
-  if (bin === "top" && !/-b\b/.test(withoutSudo)) {
-    return { blocked: false, cmd: "top -bn1 | head -40", note: "`top` needs a live terminal; showing a one-time snapshot via `top -bn1` instead." };
-  }
-
-  if (bin === "watch") {
-    const rest = withoutSudo.trim().slice(5).trim().replace(/^-\S+\s*/, "");
-    return { blocked: false, cmd: rest || "echo (no command given to watch)", note: "`watch` needs a live terminal; running the command once instead." };
-  }
-
-  if (bin === "less" || bin === "more") {
-    const file = withoutSudo.trim().split(/\s+/).slice(1).join(" ");
-    return { blocked: false, cmd: file ? `cat ${file} | head -500` : "echo (no file given)", note: `\`${bin}\` needs a live terminal; showing the first 500 lines via cat instead.` };
-  }
-
-  if (bin === "man") {
-    const rest = withoutSudo.trim().slice(3).trim();
-    return { blocked: false, cmd: rest ? `man ${rest} | col -b 2>/dev/null || man ${rest}` : "echo (no topic given)", note: "`man` needs a pager; showing plain text output instead." };
-  }
-
-  return { blocked: false, cmd };
 }
 
 function formatSize(bytes: number): string {
