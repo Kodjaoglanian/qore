@@ -45,7 +45,7 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 - **Protocol-Native Drivers**: Redis, PostgreSQL, MySQL, MongoDB, S3-compatible, HTTP API, and SSH support without vendor lock-in.
 - **Vault Management**: Change master password and import/export encrypted connection bundles.
 - **Self-Updating**: Run `qore update` to download the latest version automatically.
-- **Multi-Platform**: Prebuilt binaries for Linux (x64/arm64), macOS (Apple Silicon/Intel), and Windows (x64).
+- **Multi-Platform**: Prebuilt binaries for Linux (x64/arm64), macOS (Apple Silicon), and Windows (x64).
 - **Keyboard-First TUI**: Type commands, use arrow keys for selection, and press Escape to navigate back.
 
 ---

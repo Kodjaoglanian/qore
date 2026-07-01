@@ -44,9 +44,6 @@ jobs:
           - os: macos-latest
             target: bun-darwin-arm64
             asset: qore-darwin-arm64
-          - os: macos-13
-            target: bun-darwin-x64
-            asset: qore-darwin-x64
           - os: windows-latest
             target: bun-windows-x64
             asset: qore-windows-x64.exe
@@ -144,7 +141,6 @@ jobs:
             echo "| Linux x64 | \`qore-linux-x64\` |"
             echo "| Linux arm64 | \`qore-linux-arm64\` |"
             echo "| macOS arm64 (Apple Silicon) | \`qore-darwin-arm64\` |"
-            echo "| macOS x64 (Intel) | \`qore-darwin-x64\` |"
             echo "| Windows x64 | \`qore-windows-x64.exe\` |"
             echo ""
             echo "Or update an existing install with:"
@@ -213,7 +209,6 @@ jobs:
             artifacts/qore-linux-x64
             artifacts/qore-linux-arm64
             artifacts/qore-darwin-arm64
-            artifacts/qore-darwin-x64
             artifacts/qore-windows-x64.exe
             scripts/install.sh
             scripts/install.ps1
