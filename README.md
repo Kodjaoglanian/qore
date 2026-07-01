@@ -175,6 +175,16 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 | `export` | Export connections as encrypted bundle |
 | `import` | Import connections from encrypted bundle |
 
+### Service screen (common commands)
+
+| Command | Description |
+|---------|-------------|
+| `info` | Show service information |
+| `logs [service]` | View service logs (SSH: journalctl, Redis: SLOWLOG, Postgres: pg_stat_activity, MySQL: processlist, Mongo: getLog, HTTP: /logs endpoint) |
+| `logs docker <container>` | View Docker container logs (SSH only) |
+| `refresh` | Reconnect and reload data |
+| `back` / `esc` | Return to connections screen |
+
 ### Service screen (database commands)
 
 | Command | Description |
@@ -200,6 +210,8 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 | `del <key>` | Delete a key |
 | `keys <pattern>` | List keys matching pattern |
 | `flushdb` | Clear the current database |
+| `info` | Show Redis server info |
+| `logs` | Show SLOWLOG and INFO stats |
 
 ### S3 commands
 
@@ -218,17 +230,40 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 | `put <path> <body>` | Send PUT request with JSON body |
 | `patch <path> <body>` | Send PATCH request with JSON body |
 | `delete <path>` | Send DELETE request |
+| `logs` | Probe /logs, /health, /status endpoints |
 
 ### SSH commands
 
 | Command | Description |
 |---------|-------------|
-| `exec <command>` | Execute a command over SSH |
-| `sysinfo` | Show system information |
-| `disk` | Show disk usage |
-| `mem` | Show memory usage |
-| `procs` | List running processes |
-| `net` | Show network connections |
+| `exec <command>` | Execute a shell command over SSH |
+| `sysinfo` | Show system information (uname, hostname, uptime, disk, memory) |
+| `disk` | Show disk usage (`df -h`) |
+| `mem` | Show memory usage (`free -h`) |
+| `procs` | List running processes (`ps aux`) |
+| `net` | Show listening ports (`ss -tlnp`) |
+| `ls [path]` | List directory contents (`ls -la`) |
+| `cat <file>` | View file contents (first 500 lines) |
+| `find <pattern> [path]` | Search for files by name |
+| `du [path]` | Disk usage by subdirectory (sorted) |
+| `services` | List running systemd services |
+| `svc <action> <name>` | Start/stop/restart/status/enable/disable a service |
+| `docker ps` | List all Docker containers |
+| `docker images` | List Docker images |
+| `docker stats` | Show Docker container resource stats |
+| `docker <start\|stop\|restart\|rm> <ctr>` | Manage a Docker container |
+| `users` | Show currently logged-in users |
+| `cron` | List crontab entries |
+| `env` | List environment variables |
+| `pkgs [search]` | List or search installed packages (dpkg/rpm/pacman) |
+| `kill <pid> [signal]` | Send a signal to a process |
+| `ping <host>` | Ping a host (4 packets) |
+| `upload <local> <remote>` | Upload a file via SFTP |
+| `download <remote> <local>` | Download a file via SFTP |
+| `logs [service]` | View system logs (journalctl or syslog) |
+| `logs docker <container>` | View Docker container logs |
+| `reboot yes` | Reboot the remote machine (requires explicit confirmation) |
+| `shutdown yes` | Shut down the remote machine (requires explicit confirmation) |
 
 ---
 
@@ -382,10 +417,12 @@ Implemented:
 - Encrypted connection import and export (QOREX1 bundle format)
 - Multi-platform builds (Linux x64/arm64, macOS arm64/x64, Windows x64)
 - Self-updating via `qore update`
+- Service log aggregation (SSH/Redis/Postgres/MySQL/Mongo/HTTP)
+- SSH toolkit: file operations, service control, Docker management, SFTP transfer, process/network utilities
 
 Planned:
 
-- Service log aggregation and health checks
+- Service health checks and monitoring dashboard
 - Local emulated S3 and Pub/Sub providers
 - Multi-architecture CI matrix for ARM native builds
 
