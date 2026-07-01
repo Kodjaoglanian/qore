@@ -108,30 +108,43 @@ async function doUpdate(): Promise<void> {
     const dir = path.dirname(execPath);
     const binaryName = process.platform === "win32" ? "qore.exe" : "qore";
     const dest = path.join(dir, binaryName);
-
-    // Backup current binary
     const backup = `${dest}.bak`;
-    if (fs.existsSync(dest)) {
-      fs.copyFileSync(dest, backup);
-    }
+    const tmpDest = `${dest}.new`;
 
     try {
-      await downloadFile(asset.browserDownloadUrl, dest);
-      if (fs.existsSync(backup)) {
-        fs.unlinkSync(backup);
+      // Download to temp file first (avoids ETXTBSY on running binary)
+      await downloadFile(asset.browserDownloadUrl, tmpDest);
+
+      // Rename current binary to backup (rename works on running executables)
+      if (fs.existsSync(dest)) {
+        try { fs.unlinkSync(backup); } catch {}
+        fs.renameSync(dest, backup);
       }
-      console.log("");
-      console.log(`  Updated to ${latest} successfully.`);
-      console.log(`  Installed to: ${dest}`);
-      console.log("");
-    } catch (err) {
-      // Restore backup on failure
-      if (fs.existsSync(backup)) {
-        fs.copyFileSync(backup, dest);
-        if (process.platform !== "win32") {
-          fs.chmodSync(dest, 0o755);
+
+      try {
+        // Move new binary into place
+        fs.renameSync(tmpDest, dest);
+        if (fs.existsSync(backup)) {
+          fs.unlinkSync(backup);
         }
+        console.log("");
+        console.log(`  Updated to ${latest} successfully.`);
+        console.log(`  Installed to: ${dest}`);
+        console.log("");
+      } catch (err) {
+        // Restore backup on failure
+        if (fs.existsSync(backup)) {
+          try { fs.unlinkSync(dest); } catch {}
+          fs.renameSync(backup, dest);
+          if (process.platform !== "win32") {
+            fs.chmodSync(dest, 0o755);
+          }
+        }
+        throw err;
       }
+    } catch (err) {
+      // Clean up temp file on download failure
+      try { fs.unlinkSync(tmpDest); } catch {}
       throw err;
     }
   } catch (err) {
