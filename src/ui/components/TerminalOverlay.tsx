@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
-import { Terminal } from "xterm-headless";
 import type { PtyHandle } from "../../core/connections/ssh.js";
 import { colors } from "../theme.js";
 import { ScrollIndicator } from "./ScrollIndicator.js";
@@ -41,7 +40,7 @@ function colorFromCell(cell: any): string | undefined {
 
 export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverlayProps) {
   const { stdout } = useStdout();
-  const termRef = useRef<Terminal | null>(null);
+  const termRef = useRef<any>(null);
   const [, forceRender] = useState(0);
   const renderTick = useRef(0);
   const scrollOffset = useRef(0);
@@ -56,32 +55,41 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
   }, []);
 
   useEffect(() => {
-    const term = new Terminal({
-      cols: termW,
-      rows: termH,
-      convertEol: false,
-      allowProposedApi: true,
-    });
-    termRef.current = term;
+    let term: any = null;
 
-    pty.resize(termW, termH);
+    (async () => {
+      if (typeof (globalThis as any).window === "undefined") {
+        (globalThis as any).window = globalThis;
+      }
+      const { Terminal } = await import("xterm-headless");
+      term = new Terminal({
+        cols: termW,
+        rows: termH,
+        convertEol: false,
+        allowProposedApi: true,
+      });
+      termRef.current = term;
 
-    const dataHandler = (data: string) => {
-      term.write(data);
+      pty.resize(termW, termH);
+
+      const dataHandler = (data: string) => {
+        term.write(data);
+        renderScreen();
+      };
+
+      pty.stream.on("data", (d: Buffer) => dataHandler(d.toString()));
+
+      const closeHandler = (code: number) => {
+        const result = { exitCode: code ?? 0, stdout: "", stderr: "" };
+        onDone(result);
+      };
+
+      pty.stream.on("close", closeHandler);
       renderScreen();
-    };
-
-    pty.stream.on("data", (d: Buffer) => dataHandler(d.toString()));
-
-    const closeHandler = (code: number) => {
-      const result = { exitCode: code ?? 0, stdout: "", stderr: "" };
-      onDone(result);
-    };
-
-    pty.stream.on("close", closeHandler);
+    })();
 
     return () => {
-      term.dispose();
+      if (term) term.dispose();
     };
   }, []);
 
