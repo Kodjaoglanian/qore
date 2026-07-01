@@ -6,7 +6,6 @@ import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
 import { DiscoverScreen } from "./DiscoverScreen.js";
 import { HelpScreen } from "./HelpScreen.js";
-import { VaultScreen } from "./VaultScreen.js";
 import { ConnectionsScreen } from "./ConnectionsScreen.js";
 import { ServiceScreen } from "./ServiceScreen.js";
 import { StatusBar } from "./components/StatusBar.js";
@@ -15,7 +14,7 @@ import { Vault } from "../core/vault/vault.js";
 import type { ConnectionConfig } from "../core/vault/types.js";
 import type { ProbeResult } from "../core/types.js";
 
-type Screen = "welcome" | "discover" | "help" | "vault" | "connections" | "service";
+type Screen = "welcome" | "discover" | "help" | "connections" | "service";
 
 export function App() {
   const { exit } = useApp();
@@ -63,14 +62,8 @@ export function App() {
           break;
         case "connections":
         case "conn":
-          if (vault && vault.isUnlocked()) {
-            setScreen("connections");
-          } else {
-            setScreen("vault");
-          }
-          break;
         case "vault":
-          setScreen("vault");
+          setScreen("connections");
           break;
         case "back":
         case "home":
@@ -100,7 +93,6 @@ export function App() {
 
   const handleVaultUnlock = useCallback((v: Vault) => {
     setVault(v);
-    setScreen("connections");
   }, []);
 
   const handleConnect = useCallback((conn: ConnectionConfig) => {
@@ -144,12 +136,10 @@ export function App() {
           <DiscoverScreen probe={probe} scanning={scanning} onCommand={handleCommand} onRefresh={runDiscovery} />
         )}
         {screen === "help" && <HelpScreen onCommand={handleCommand} />}
-        {screen === "vault" && (
-          <VaultScreen onUnlock={handleVaultUnlock} onBack={() => setScreen("welcome")} />
-        )}
-        {screen === "connections" && vault && (
+        {screen === "connections" && (
           <ConnectionsScreen
             vault={vault}
+            onVaultUnlock={handleVaultUnlock}
             onConnect={handleConnect}
             onBack={() => setScreen("welcome")}
           />

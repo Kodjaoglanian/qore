@@ -1,5 +1,6 @@
 import type { ConnectionConfig } from "../vault/types.js";
 import type { ConnectionManager } from "./manager.js";
+import { readFileSync } from "fs";
 
 export interface SshResult {
   exitCode: number;
@@ -56,7 +57,12 @@ export class SshManager implements ConnectionManager {
       }, 15000);
 
       client.on("ready", () => {
-        client.exec(command, (err: any, stream: any) => {
+        const hasSudo = /\bsudo\b/.test(command);
+        const finalCommand = hasSudo && config.password
+          ? command.replace(/\bsudo\b/g, "sudo -S")
+          : command;
+
+        client.exec(finalCommand, { pty: true }, (err: any, stream: any) => {
           if (err) {
             clearTimeout(timeout);
             client.end();
@@ -67,9 +73,21 @@ export class SshManager implements ConnectionManager {
           let stderr = "";
           stream.on("data", (data: Buffer) => { stdout += data.toString(); });
           stream.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+
+          if (hasSudo && config.password) {
+            stream.write(config.password + "\n");
+          }
+
           stream.on("close", (code: number) => {
             clearTimeout(timeout);
             client.end();
+            if (hasSudo && config.password) {
+              const lines = stdout.split("\n");
+              if (lines[0] && /[Pp]assword/.test(lines[0])) {
+                lines.shift();
+              }
+              stdout = lines.join("\n");
+            }
             resolve({ exitCode: code ?? 0, stdout, stderr });
           });
         });
@@ -88,6 +106,17 @@ export class SshManager implements ConnectionManager {
 
       if (config.password) {
         authConfig.password = config.password;
+      } else if (config.extra?.keyPath) {
+        const keyPath = config.extra.keyPath.replace("~", process.env.HOME || "");
+        try {
+          authConfig.privateKey = readFileSync(keyPath, "utf-8");
+          if (config.apiSecret) {
+            authConfig.passphrase = config.apiSecret;
+          }
+        } catch {
+          reject(new Error(`Cannot read SSH key: ${keyPath}`));
+          return;
+        }
       } else if (config.apiKey) {
         authConfig.privateKey = config.apiKey;
         if (config.apiSecret) {

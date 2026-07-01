@@ -7,6 +7,7 @@ interface InputBarProps {
   placeholder?: string;
   focused?: boolean;
   prompt?: string;
+  masked?: boolean;
 }
 
 export function InputBar({
@@ -14,6 +15,7 @@ export function InputBar({
   placeholder = "Type a command...",
   focused = true,
   prompt = ">",
+  masked = false,
 }: InputBarProps) {
   const [value, setValue] = useState("");
 
@@ -39,6 +41,8 @@ export function InputBar({
     { isActive: focused }
   );
 
+  const displayValue = masked ? "*".repeat(value.length) : value;
+
   return (
     <Box
       borderStyle="round"
@@ -50,7 +54,7 @@ export function InputBar({
         {prompt}{" "}
       </Text>
       {value.length > 0 ? (
-        <Text color={colors.text}>{value}</Text>
+        <Text color={colors.text}>{displayValue}</Text>
       ) : (
         <Text color={colors.textMuted}>{placeholder}</Text>
       )}

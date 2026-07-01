@@ -7,26 +7,28 @@ import { InputBar } from "./components/InputBar.js";
 import { ShortcutBar } from "./components/ShortcutBar.js";
 import { Breadcrumb } from "./components/Breadcrumb.js";
 import { ProgressBar } from "./components/ProgressBar.js";
-import type { Vault } from "../core/vault/vault.js";
+import { Vault } from "../core/vault/vault.js";
 import type { ConnectionConfig, ConnectionType } from "../core/vault/types.js";
 import { CONNECTION_LABELS, CONNECTION_ICONS, DEFAULT_PORTS } from "../core/vault/types.js";
 import { getManager } from "../core/connections/manager.js";
 
 interface ConnectionsScreenProps {
-  vault: Vault;
+  vault: Vault | null;
+  onVaultUnlock: (vault: Vault) => void;
   onConnect: (conn: ConnectionConfig) => void;
   onBack: () => void;
 }
 
-type View = "list" | "add" | "edit" | "changepw" | "export" | "import";
+type View = "list" | "add" | "edit" | "changepw" | "export" | "import" | "unlock";
 
-export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScreenProps) {
+export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack }: ConnectionsScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalSize();
   const margin = Math.max(1, Math.floor(termWidth * 0.03));
   const innerWidth = Math.max(40, termWidth - margin * 2 - 4);
 
-  const [view, setView] = useState<View>("list");
-  const [connections, setConnections] = useState<ConnectionConfig[]>(vault.getConnections());
+  const vaultReady = vault !== null && vault.isUnlocked();
+  const [view, setView] = useState<View>(vaultReady ? "list" : "unlock");
+  const [connections, setConnections] = useState<ConnectionConfig[]>(vaultReady ? vault!.getConnections() : []);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
@@ -38,6 +40,12 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
   const [bundleData, setBundleData] = useState("");
   const [exportedBundle, setExportedBundle] = useState<string | null>(null);
 
+  // Vault unlock state
+  const vaultInitialized = Vault.isInitialized();
+  const [vaultMode, setVaultMode] = useState<"init" | "confirm" | "unlock">(vaultInitialized ? "unlock" : "init");
+  const [vaultPw, setVaultPw] = useState("");
+  const [vaultError, setVaultError] = useState<string | null>(null);
+
   // Add form state
   const [formStep, setFormStep] = useState(0);
   const [formData, setFormData] = useState<Partial<ConnectionConfig>>({
@@ -48,8 +56,50 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
   });
 
   const refreshList = useCallback(() => {
-    setConnections(vault.getConnections());
+    if (vault && vault.isUnlocked()) setConnections(vault.getConnections());
   }, [vault]);
+
+  const handleVaultSubmit = useCallback((value: string) => {
+    setVaultError(null);
+
+    if (vaultMode === "init") {
+      setVaultPw(value);
+      setVaultMode("confirm");
+      return;
+    }
+
+    if (vaultMode === "confirm") {
+      if (value !== vaultPw) {
+        setVaultError("Passwords do not match.");
+        setVaultPw("");
+        setVaultMode("init");
+        return;
+      }
+      try {
+        const v = Vault.init(value);
+        onVaultUnlock(v);
+      } catch {
+        setVaultError("Failed to create vault.");
+        setVaultPw("");
+        setVaultMode("init");
+      }
+      return;
+    }
+
+    if (vaultMode === "unlock") {
+      try {
+        const v = Vault.unlock(value);
+        if (v) {
+          onVaultUnlock(v);
+        } else {
+          setVaultError("Wrong password.");
+        }
+      } catch {
+        setVaultError("Failed to unlock vault.");
+      }
+      return;
+    }
+  }, [vaultMode, vaultPw, onVaultUnlock]);
 
   const testConnection = useCallback(async (conn: ConnectionConfig) => {
     setTesting(conn.id);
@@ -70,6 +120,7 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
   }, []);
 
   const handleFormInput = useCallback((value: string) => {
+    if (!vault) return;
     const lower = value.toLowerCase();
 
     if (formStep === 0) {
@@ -127,6 +178,30 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
         setStatus("Enter API key:");
         return;
       }
+      if (formData.type === "ssh") {
+        setFormStep(5.5);
+        setStatus("SSH key file path (e.g. ~/.ssh/id_rsa) or Enter for password auth:");
+        return;
+      }
+      setFormStep(7);
+      setStatus("Use TLS? (yes/no):");
+      return;
+    }
+
+    if (formStep === 5.5) {
+      if (value) {
+        setFormData((d) => ({ ...d, extra: { ...d.extra, keyPath: value } }));
+        setFormStep(5.6);
+        setStatus("Key passphrase (or Enter to skip):");
+      } else {
+        setFormStep(7);
+        setStatus("Use TLS? (yes/no):");
+      }
+      return;
+    }
+
+    if (formStep === 5.6) {
+      setFormData((d) => ({ ...d, apiSecret: value || undefined }));
       setFormStep(7);
       setStatus("Use TLS? (yes/no):");
       return;
@@ -163,6 +238,7 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
   }, [formStep, formData, vault, refreshList]);
 
   const handlePwInput = useCallback((value: string) => {
+    if (!vault) return;
     if (view === "changepw") {
       if (pwStep === 0) {
         setOldPw(value);
@@ -256,9 +332,23 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
     }
   }, [view, pwStep, oldPw, newPw, bundlePw, bundleData, vault, refreshList]);
 
+  const isPasswordStep = useCallback((): boolean => {
+    if (view === "unlock") return true;
+    if (view === "changepw") return true;
+    if (view === "export" && !exportedBundle) return true;
+    if (view === "import" && bundleData) return true;
+    if (view === "add" && (formStep === 5 || formStep === 5.6 || (formStep === 6 && formData.type === "s3") || (formStep === 6.5 && formData.type === "s3"))) return true;
+    return false;
+  }, [view, exportedBundle, bundleData, formStep, formData.type]);
+
   const handleSubmit = useCallback((cmd: string) => {
     const trimmed = cmd.trim();
     const lower = trimmed.toLowerCase();
+
+    if (view === "unlock") {
+      handleVaultSubmit(trimmed);
+      return;
+    }
 
     if (view === "add") {
       handleFormInput(trimmed);
@@ -320,7 +410,7 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
 
     if (command === "rm" && parts[1]) {
       const idx = parseInt(parts[1], 10) - 1;
-      if (idx >= 0 && idx < connections.length) {
+      if (idx >= 0 && idx < connections.length && vault) {
         vault.removeConnection(connections[idx].id);
         refreshList();
         setStatus(`Removed: ${connections[idx].name}`);
@@ -362,6 +452,10 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
 
   useInput((input, key) => {
     if (key.escape) {
+      if (view === "unlock") {
+        onBack();
+        return;
+      }
       if (view !== "list") {
         setView("list");
         setFormStep(0);
@@ -389,10 +483,48 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
   return (
     <Box flexDirection="column" width={termWidth} height={termHeight - 4} paddingX={margin} overflow="hidden">
       <Box marginBottom={1} height={1}>
-        <Breadcrumb items={["Home", view === "add" ? "Add Connection" : "Connections"]} />
+        <Breadcrumb items={["Home", view === "add" ? "Add Connection" : view === "unlock" ? (vaultMode === "unlock" ? "Unlock Vault" : "Create Vault") : "Connections"]} />
       </Box>
 
       <Box flexDirection="column" height={availH} overflow="hidden">
+        {view === "unlock" && (
+          <StyledBox title={vaultMode === "unlock" ? "Unlock Vault" : "Create Vault"} focused padding={1} height={availH} overflow="hidden">
+            <Box flexDirection="column">
+              <Box marginBottom={1}>
+                <Text color={colors.purple} bold>
+                  {"  "}{vaultMode === "init" ? "Step 1/2 — Set password" : vaultMode === "confirm" ? "Step 2/2 — Confirm" : "Unlock"}
+                </Text>
+              </Box>
+
+              {vaultMode === "init" && (
+                <Text color={colors.textMuted}>
+                  {"  No vault found. Enter a master password to create one."}
+                </Text>
+              )}
+              {vaultMode === "confirm" && (
+                <Text color={colors.green}>{"  [ok] Password set. Confirm it:"}</Text>
+              )}
+              {vaultMode === "unlock" && (
+                <Text color={colors.textMuted}>
+                  {"  Enter your master password to unlock."}
+                </Text>
+              )}
+
+              {vaultError && (
+                <Box marginTop={1}>
+                  <Text color={colors.red} bold>{"  [!] "}{vaultError}</Text>
+                </Box>
+              )}
+
+              <Box marginTop={1}>
+                <Text color={colors.textDim}>
+                  {"  AES-256-GCM · scrypt · never stored in plaintext"}
+                </Text>
+              </Box>
+            </Box>
+          </StyledBox>
+        )}
+
         {view === "list" && (
           <StyledBox title="Saved Connections" focused padding={1} height={availH} overflow="hidden">
             <Box flexDirection="column">
@@ -448,6 +580,8 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
                   {formStep === 3 && "Port"}
                   {formStep === 4 && "Username"}
                   {formStep === 5 && "Password"}
+                  {formStep === 5.5 && "SSH Key Path"}
+                  {formStep === 5.6 && "Key Passphrase"}
                   {formStep === 6 && "API Key"}
                   {formStep === 6.5 && "API Secret"}
                   {formStep === 7 && "TLS"}
@@ -463,6 +597,9 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
                 <Text color={formData.port ? colors.green : colors.textMuted}>{"    "}{formData.port ? "[ok]" : "[  ]"}{" port: "}<Text color={formData.port ? colors.purple : colors.textDim}>{formData.port ?? "—"}</Text></Text>
                 <Text color={formData.username ? colors.green : colors.textMuted}>{"    "}{formData.username ? "[ok]" : "[  ]"}{" user: "}<Text color={formData.username ? colors.purple : colors.textDim}>{formData.username ?? "(skip)"}</Text></Text>
                 <Text color={formData.password ? colors.green : colors.textMuted}>{"    "}{formData.password ? "[ok]" : "[  ]"}{" pass: "}<Text color={formData.password ? colors.purple : colors.textDim}>{formData.password ? "****" : "(skip)"}</Text></Text>
+                {formData.type === "ssh" && (
+                  <Text color={formData.extra?.keyPath ? colors.green : colors.textMuted}>{"    "}{formData.extra?.keyPath ? "[ok]" : "[  ]"}{" key: "}<Text color={formData.extra?.keyPath ? colors.purple : colors.textDim}>{formData.extra?.keyPath ?? "(password auth)"}</Text></Text>
+                )}
                 {formData.type === "s3" && (
                   <>
                     <Text color={formData.apiKey ? colors.green : colors.textMuted}>{"    "}{formData.apiKey ? "[ok]" : "[  ]"}{" key: "}<Text color={formData.apiKey ? colors.purple : colors.textDim}>{formData.apiKey ?? "—"}</Text></Text>
@@ -581,7 +718,8 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
-          placeholder={view === "add" ? getFormPlaceholder(formStep) : view === "changepw" ? getPwPlaceholder(pwStep) : view === "export" ? (exportedBundle ? "done - press esc to return" : "Encryption password (min 8 chars)") : view === "import" ? (bundleData ? "Decryption password" : "Paste bundle string") : "connect · add · test · rm <n> · changepw · export · import · back"}
+          masked={isPasswordStep()}
+          placeholder={view === "unlock" ? (vaultMode === "confirm" ? "Confirm password" : "Master password") : view === "add" ? getFormPlaceholder(formStep) : view === "changepw" ? getPwPlaceholder(pwStep) : view === "export" ? (exportedBundle ? "done - press esc to return" : "Encryption password (min 8 chars)") : view === "import" ? (bundleData ? "Decryption password" : "Paste bundle string") : "connect · add · test · rm <n> · changepw · export · import · back"}
         />
       </Box>
 
@@ -589,7 +727,7 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
         <ShortcutBar
           shortcuts={[
             { key: "Up/Dn", label: "select" },
-            { key: "Enter", label: "connect" },
+            { key: "Enter", label: view === "unlock" ? "confirm" : "connect" },
             { key: "esc", label: view === "add" ? "cancel" : "back" },
           ]}
         />
@@ -606,6 +744,8 @@ function getFormPlaceholder(step: number): string {
     case 3: return "Port (default shown above)";
     case 4: return "Username (or Enter to skip)";
     case 5: return "Password (or Enter to skip)";
+    case 5.5: return "~/.ssh/id_rsa (or Enter for password auth)";
+    case 5.6: return "Key passphrase (or Enter to skip)";
     case 6: return "API Key";
     case 6.5: return "API Secret";
     case 7: return "Use TLS? (yes/no)";
