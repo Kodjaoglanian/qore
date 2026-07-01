@@ -41,9 +41,9 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
   // Add form state
   const [formStep, setFormStep] = useState(0);
   const [formData, setFormData] = useState<Partial<ConnectionConfig>>({
-    type: "redis",
+    type: undefined,
     host: "localhost",
-    port: 6379,
+    port: undefined,
     useTls: false,
   });
 
@@ -73,7 +73,7 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
     const lower = value.toLowerCase();
 
     if (formStep === 0) {
-      const validTypes: ConnectionType[] = ["redis", "postgres", "mysql", "mongo", "s3"];
+      const validTypes: ConnectionType[] = ["redis", "postgres", "mysql", "mongo", "s3", "http", "ssh"];
       if (validTypes.includes(lower as ConnectionType)) {
         const type = lower as ConnectionType;
         setFormData((d) => ({ ...d, type, port: DEFAULT_PORTS[type] }));
@@ -284,8 +284,8 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
     if (command === "add") {
       setView("add");
       setFormStep(0);
-      setFormData({ type: "redis", host: "localhost", port: 6379, useTls: false });
-      setStatus("Type: redis · postgres · mysql · mongo · s3");
+      setFormData({ type: undefined, host: "localhost", port: undefined, useTls: false });
+      setStatus("Type: redis · postgres · mysql · mongo · s3 · http · ssh");
       return;
     }
 
@@ -457,7 +457,7 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
 
               <Box flexDirection="column" marginBottom={1}>
                 <Text color={colors.textDim}>{"  Checklist:"}</Text>
-                <Text color={formData.type ? colors.green : colors.textMuted}>{"    [ok] type: "}<Text color={colors.purple}>{formData.type}</Text></Text>
+                <Text color={formData.type ? colors.green : colors.textMuted}>{"    "}{formData.type ? "[ok]" : "[  ]"}{" type: "}<Text color={formData.type ? colors.purple : colors.textDim}>{formData.type ?? "—"}</Text></Text>
                 <Text color={formData.name ? colors.green : colors.textMuted}>{"    "}{formData.name ? "[ok]" : "[  ]"}{" name: "}<Text color={formData.name ? colors.purple : colors.textDim}>{formData.name ?? "—"}</Text></Text>
                 <Text color={formData.host ? colors.green : colors.textMuted}>{"    "}{formData.host ? "[ok]" : "[  ]"}{" host: "}<Text color={formData.host ? colors.purple : colors.textDim}>{formData.host ?? "—"}</Text></Text>
                 <Text color={formData.port ? colors.green : colors.textMuted}>{"    "}{formData.port ? "[ok]" : "[  ]"}{" port: "}<Text color={formData.port ? colors.purple : colors.textDim}>{formData.port ?? "—"}</Text></Text>
@@ -473,7 +473,7 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
               </Box>
 
               {formStep === 0 && (
-                <Text color={colors.textMuted}>{"  Options: redis · postgres · mysql · mongo · s3"}</Text>
+                <Text color={colors.textMuted}>{"  Options: redis · postgres · mysql · mongo · s3 · http · ssh"}</Text>
               )}
 
               {status && (
@@ -600,7 +600,7 @@ export function ConnectionsScreen({ vault, onConnect, onBack }: ConnectionsScree
 
 function getFormPlaceholder(step: number): string {
   switch (step) {
-    case 0: return "redis · postgres · mysql · mongo · s3";
+    case 0: return "redis · postgres · mysql · mongo · s3 · http · ssh";
     case 1: return "Connection name (e.g. My Redis)";
     case 2: return "Host (default: localhost)";
     case 3: return "Port (default shown above)";
