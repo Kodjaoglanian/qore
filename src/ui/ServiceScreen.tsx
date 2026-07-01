@@ -25,14 +25,16 @@ interface ServiceScreenProps {
   tabCount?: number;
   tabIdx?: number;
   focused?: boolean;
+  heightOffset?: number;
 }
 
 const BOX_OVERHEAD = 5;
 const HEADER = 2;
 const FOOTER = 4;
 
-export function ServiceScreen({ conn, onBack, onClose, focused = true }: ServiceScreenProps) {
+export function ServiceScreen({ conn, onBack, onClose, focused = true, heightOffset = 0 }: ServiceScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalSize();
+  const effectiveHeight = termHeight - heightOffset;
   const margin = Math.max(1, Math.floor(termWidth * 0.03));
   const innerWidth = Math.max(30, termWidth - margin * 2 - 4);
 
@@ -52,7 +54,7 @@ export function ServiceScreen({ conn, onBack, onClose, focused = true }: Service
   const [cmdHistory, setCmdHistory] = useState<string[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
 
-  const availH = Math.max(8, termHeight - HEADER - FOOTER);
+  const availH = Math.max(8, effectiveHeight - HEADER - FOOTER);
   const listH = Math.floor(availH * 0.55);
   const infoH = Math.floor(availH * 0.35);
 
@@ -1300,7 +1302,7 @@ export function ServiceScreen({ conn, onBack, onClose, focused = true }: Service
 
   if (ptyHandle) {
     return (
-      <Box flexDirection="column" width={termWidth} height={termHeight} paddingX={margin} overflow="hidden">
+      <Box flexDirection="column" width={termWidth} height={effectiveHeight} paddingX={margin} overflow="hidden">
         <Box marginBottom={1} height={1} flexDirection="row" justifyContent="space-between">
           <Box flexDirection="row">
             <Breadcrumb items={["Home", "Connections", `${CONNECTION_ICONS[conn.type]} ${conn.name}`]} />

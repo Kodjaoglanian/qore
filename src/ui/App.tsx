@@ -203,7 +203,6 @@ export function App() {
                 key={conn.id}
                 display={i === activeIdx ? "flex" : "none"}
                 width={termWidth}
-                height={activeConns.length > 1 ? contentHeight - 2 : contentHeight}
                 overflow="hidden"
               >
                 <ServiceScreen
@@ -213,6 +212,7 @@ export function App() {
                   tabCount={activeConns.length}
                   tabIdx={i}
                   focused={i === activeIdx}
+                  heightOffset={activeConns.length > 1 ? 2 : 0}
                 />
               </Box>
             ))}
