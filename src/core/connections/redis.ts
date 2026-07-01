@@ -62,6 +62,30 @@ export class RedisManager implements ConnectionManager {
     return resp === "OK";
   }
 
+  async getLogs(config: ConnectionConfig, opts?: { tail?: number }): Promise<string[]> {
+    const lines: string[] = [];
+    try {
+      const slowlog = await this.command(config, ["SLOWLOG", "GET", String(opts?.tail ?? 10)]);
+      const slowStr = typeof slowlog === "string" ? slowlog : slowlog.join("\n");
+      lines.push("  === SLOWLOG ===");
+      for (const line of slowStr.split("\n")) {
+        if (line.trim()) lines.push(`  ${line}`);
+      }
+    } catch {}
+    try {
+      const info = await this.command(config, ["INFO"]);
+      const infoStr = typeof info === "string" ? info : info.join("\n");
+      lines.push("  === INFO (stats) ===");
+      for (const line of infoStr.split("\n")) {
+        const t = line.trim();
+        if (t && !t.startsWith("#") && (t.includes("connected") || t.includes("rejected") || t.includes("expired") || t.includes("evicted") || t.includes("keyspace") || t.includes("uptime"))) {
+          lines.push(`  ${t}`);
+        }
+      }
+    } catch {}
+    return lines.length > 0 ? lines : ["  No logs available"];
+  }
+
   private async command(config: ConnectionConfig, args: string[]): Promise<string | string[]> {
     const socket = await Bun.connect({
       hostname: config.host,

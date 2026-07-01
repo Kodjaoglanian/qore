@@ -112,6 +112,34 @@ export class PostgresManager implements DatabaseManager {
        WHERE state = 'active' AND pid <> pg_backend_pid()
        ORDER BY query_start`);
   }
+
+  async getLogs(config: ConnectionConfig, opts?: { tail?: number }): Promise<string[]> {
+    const lines: string[] = [];
+    const tail = opts?.tail ?? 100;
+    try {
+      const result = await this.query(config, config.database ?? "postgres",
+        `SELECT pid, usename, application_name, client_addr, state, query
+         FROM pg_stat_activity WHERE state IS NOT NULL ORDER BY query_start DESC LIMIT ${Math.min(tail, 50)}`);
+      lines.push("  === Active Sessions ===");
+      for (const row of result.rows) {
+        lines.push(`  pid:${row["pid"]} user:${row["usename"] ?? "-"} state:${row["state"]} query:${String(row["query"] ?? "").slice(0, 80)}`);
+      }
+    } catch (err) {
+      lines.push(`  [!] pg_stat_activity: ${(err as Error).message}`);
+    }
+    try {
+      const logResult = await this.query(config, config.database ?? "postgres",
+        `SELECT pg_read_file('log/' || (SELECT pg_ls_dir('log') ORDER BY 1 DESC LIMIT 1), 0, ${tail * 200}) AS log`);
+      if (logResult.rows[0]?.["log"]) {
+        lines.push("  === Server Log (tail) ===");
+        const logLines = String(logResult.rows[0]["log"]).split("\n").slice(-tail);
+        for (const line of logLines) {
+          if (line.trim()) lines.push(`  ${line}`);
+        }
+      }
+    } catch {}
+    return lines.length > 0 ? lines : ["  No logs available"];
+  }
 }
 
 async function connectPostgres(config: ConnectionConfig, database: string): Promise<any> {

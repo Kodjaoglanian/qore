@@ -10,6 +10,7 @@ import { SshManager } from "./ssh.js";
 export interface ConnectionManager {
   testConnection(config: ConnectionConfig): Promise<boolean>;
   getInfo(config: ConnectionConfig): Promise<Record<string, string>>;
+  getLogs?(config: ConnectionConfig, opts?: { service?: string; tail?: number }): Promise<string[]>;
 }
 
 export interface DatabaseManager extends ConnectionManager {

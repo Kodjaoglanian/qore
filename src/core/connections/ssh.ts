@@ -28,11 +28,15 @@ function cleanOutput(str: string): string {
 }
 
 export class SshManager implements ConnectionManager {
+  lastError: string | null = null;
+
   async testConnection(config: ConnectionConfig): Promise<boolean> {
     try {
+      this.lastError = null;
       const result = await this.exec(config, "echo ok");
       return result.exitCode === 0 && result.stdout.trim() === "ok";
-    } catch {
+    } catch (err) {
+      this.lastError = (err as Error).message;
       return false;
     }
   }
@@ -151,5 +155,25 @@ export class SshManager implements ConnectionManager {
 
       client.connect(authConfig);
     });
+  }
+
+  async getLogs(config: ConnectionConfig, opts?: { service?: string; tail?: number }): Promise<string[]> {
+    const tail = opts?.tail ?? 100;
+    const service = opts?.service;
+
+    if (service === "docker" || service?.startsWith("docker:")) {
+      const container = service.startsWith("docker:") ? service.slice(7) : (opts?.service ?? "");
+      if (!container) return ["  Usage: logs docker <container>"];
+      const result = await this.exec(config, `docker logs --tail ${tail} ${container} 2>&1`);
+      return result.stdout.split("\n").map((l) => `  ${l}`);
+    }
+
+    if (service) {
+      const result = await this.exec(config, `journalctl -u ${service} -n ${tail} --no-pager 2>/dev/null || tail -n ${tail} /var/log/${service} 2>/dev/null || echo "No logs found for ${service}"`);
+      return result.stdout.split("\n").map((l) => `  ${l}`);
+    }
+
+    const result = await this.exec(config, `journalctl -n ${tail} --no-pager 2>/dev/null || tail -n ${tail} /var/log/syslog 2>/dev/null || tail -n ${tail} /var/log/messages 2>/dev/null || echo "No system logs found"`);
+    return result.stdout.split("\n").map((l) => `  ${l}`);
   }
 }
