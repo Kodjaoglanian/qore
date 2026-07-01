@@ -43,6 +43,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
   const [isStreaming, setIsStreaming] = useState(false);
   const streamSendRef = useRef<((input: string) => void) | null>(null);
   const streamCancelRef = useRef<(() => void) | null>(null);
+  const inputHandledRef = useRef(false);
   const [ptyHandle, setPtyHandle] = useState<PtyHandle | null>(null);
   const [ptyTitle, setPtyTitle] = useState("");
   const [cmdHistory, setCmdHistory] = useState<string[]>([]);
@@ -1239,6 +1240,10 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
 
   useInput((input, key) => {
     if (ptyHandle) return;
+    if (inputHandledRef.current) {
+      inputHandledRef.current = false;
+      return;
+    }
     if (overlay) {
       if (key.escape) {
         if (streamCancelRef.current) {
@@ -1259,11 +1264,6 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
 
     if (key.escape) {
       onBack();
-      return;
-    }
-    if (key.return) {
-      const item = items[selectedIdx];
-      if (item) handleSubmit(item);
       return;
     }
     if (key.upArrow) {
@@ -1423,9 +1423,14 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
+          onEmptySubmit={() => {
+            const item = items[selectedIdx];
+            if (item) handleSubmit(item);
+          }}
           placeholder={isStreaming ? "type input · Enter to send · esc to cancel" : getPlaceholder(conn.type)}
           history={cmdHistory}
           completions={[...items, ...favorites]}
+          inputHandledRef={inputHandledRef}
         />
       </Box>
 

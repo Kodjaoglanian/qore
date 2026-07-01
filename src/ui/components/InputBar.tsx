@@ -1,25 +1,29 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, type MutableRefObject } from "react";
 import { Box, Text, useInput } from "ink";
 import { colors } from "../theme.js";
 
 interface InputBarProps {
   onSubmit: (value: string) => void;
+  onEmptySubmit?: () => void;
   placeholder?: string;
   focused?: boolean;
   prompt?: string;
   masked?: boolean;
   history?: string[];
   completions?: string[];
+  inputHandledRef?: MutableRefObject<boolean>;
 }
 
 export function InputBar({
   onSubmit,
+  onEmptySubmit,
   placeholder = "Type a command...",
   focused = true,
   prompt = ">",
   masked = false,
   history = [],
   completions = [],
+  inputHandledRef,
 }: InputBarProps) {
   const [value, setValue] = useState("");
   const histIdx = useRef(history.length);
@@ -29,7 +33,13 @@ export function InputBar({
   useInput(
     (input, key) => {
       if (key.return) {
-        if (value.trim()) onSubmit(value);
+        if (value.trim()) {
+          onSubmit(value);
+          if (inputHandledRef) inputHandledRef.current = true;
+        } else if (onEmptySubmit) {
+          onEmptySubmit();
+          if (inputHandledRef) inputHandledRef.current = true;
+        }
         setValue("");
         histIdx.current = history.length;
         draft.current = "";
@@ -42,6 +52,7 @@ export function InputBar({
           if (matches.length > 0) {
             tabIdx.current = (tabIdx.current + 1) % matches.length;
             setValue(matches[tabIdx.current % matches.length]);
+            if (inputHandledRef) inputHandledRef.current = true;
             return;
           }
         }
@@ -50,11 +61,13 @@ export function InputBar({
         if (histIdx.current === history.length) draft.current = value;
         histIdx.current = Math.max(0, histIdx.current - 1);
         setValue(history[histIdx.current] ?? "");
+        if (inputHandledRef) inputHandledRef.current = true;
         return;
       }
       if (key.downArrow && history.length > 0) {
         histIdx.current = Math.min(history.length, histIdx.current + 1);
         setValue(histIdx.current === history.length ? draft.current : (history[histIdx.current] ?? ""));
+        if (inputHandledRef) inputHandledRef.current = true;
         return;
       }
       if (key.backspace || key.delete) {
@@ -74,20 +87,30 @@ export function InputBar({
 
   const displayValue = masked ? "*".repeat(value.length) : value;
 
+  const maxW = Math.max(20, (process.stdout.columns || 80) - 6);
+  const truncatedValue = displayValue.length > maxW
+    ? displayValue.slice(0, maxW - 1) + "…"
+    : displayValue;
+  const truncatedPlaceholder = placeholder.length > maxW
+    ? placeholder.slice(0, maxW - 1) + "…"
+    : placeholder;
+
   return (
     <Box
       borderStyle="round"
       borderColor={focused ? colors.border : colors.borderMuted}
       paddingX={1}
       width="100%"
+      flexShrink={0}
+      overflow="hidden"
     >
       <Text color={colors.purple} bold>
         {prompt}{" "}
       </Text>
       {value.length > 0 ? (
-        <Text color={colors.text}>{displayValue}</Text>
+        <Text color={colors.text} wrap="truncate">{truncatedValue}</Text>
       ) : (
-        <Text color={colors.textMuted}>{placeholder}</Text>
+        <Text color={colors.textMuted} wrap="truncate">{truncatedPlaceholder}</Text>
       )}
       {focused && <Text color={colors.purple}>▎</Text>}
     </Box>
