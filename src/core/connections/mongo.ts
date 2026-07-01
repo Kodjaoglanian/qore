@@ -220,6 +220,24 @@ export class MongoManager implements DatabaseManager {
     }
   }
 
+  async getLogs(config: ConnectionConfig, opts?: { tail?: number }): Promise<string[]> {
+    const tail = opts?.tail ?? 100;
+    const lines: string[] = [];
+    const client = await this.connect(config);
+    try {
+      const db = client.db("admin");
+      const result = await db.adminCommand({ getLog: "global" });
+      const logLines: string[] = (result.log ?? []) as string[];
+      lines.push("  === MongoDB Global Log (tail) ===");
+      for (const line of logLines.slice(-tail)) {
+        lines.push(`  ${line}`);
+      }
+      return lines.length > 1 ? lines : ["  No logs available"];
+    } finally {
+      await client.close();
+    }
+  }
+
   private async connect(config: ConnectionConfig): Promise<any> {
     const { MongoClient } = await import("mongodb");
     const proto = config.useTls ? "mongodb+srv" : "mongodb";

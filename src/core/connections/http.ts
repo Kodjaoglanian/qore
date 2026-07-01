@@ -110,4 +110,22 @@ export class HttpManager implements ConnectionManager {
       body: respBody,
     };
   }
+
+  async getLogs(config: ConnectionConfig, opts?: { tail?: number }): Promise<string[]> {
+    const tail = opts?.tail ?? 100;
+    const lines: string[] = [];
+    for (const path of ["/logs", "/log", "/health", "/status"]) {
+      try {
+        const url = this.buildUrl(config, path);
+        const resp = await this.request(config, "GET", url);
+        lines.push(`  === ${path} (${resp.status}) ===`);
+        const bodyLines = resp.body.split("\n").slice(0, tail);
+        for (const line of bodyLines) {
+          if (line.trim()) lines.push(`  ${line.slice(0, 200)}`);
+        }
+        if (lines.length > 2) break;
+      } catch {}
+    }
+    return lines.length > 0 ? lines : ["  No logs endpoint found"];
+  }
 }

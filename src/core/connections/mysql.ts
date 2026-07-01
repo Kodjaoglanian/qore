@@ -114,6 +114,35 @@ export class MysqlManager implements DatabaseManager {
        WHERE command = 'Query'
        ORDER BY time DESC`);
   }
+
+  async getLogs(config: ConnectionConfig, opts?: { tail?: number }): Promise<string[]> {
+    const lines: string[] = [];
+    const tail = opts?.tail ?? 100;
+    try {
+      const result = await this.query(config, config.database ?? "mysql",
+        `SELECT id, user, host, db, command, time, state, info
+         FROM information_schema.processlist ORDER BY id LIMIT ${Math.min(tail, 50)}`);
+      lines.push("  === Processlist ===");
+      for (const row of result.rows) {
+        lines.push(`  id:${row["id"]} user:${row["user"] ?? "-"} db:${row["db"] ?? "-"} cmd:${row["command"]} time:${row["time"]}s info:${String(row["info"] ?? "").slice(0, 60)}`);
+      }
+    } catch (err) {
+      lines.push(`  [!] processlist: ${(err as Error).message}`);
+    }
+    try {
+      const conn = await connectMysql(config, config.database ?? "mysql");
+      try {
+        const [rows] = await conn.query("SHOW VARIABLES LIKE 'log_error'");
+        const logPath = (rows as any)[0]?.Value;
+        if (logPath) {
+          lines.push(`  === Error Log: ${logPath} ===`);
+        }
+      } finally {
+        await conn.end();
+      }
+    } catch {}
+    return lines.length > 0 ? lines : ["  No logs available"];
+  }
 }
 
 async function connectMysql(config: ConnectionConfig, database: string): Promise<any> {

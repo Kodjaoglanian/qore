@@ -59,7 +59,9 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
     try {
       const ok = await manager.testConnection(conn);
       if (!ok) {
-        setStatus(`[!] Failed to connect to ${conn.name}`);
+        const sshManager = conn.type === "ssh" ? (manager as SshManager) : null;
+        const detail = sshManager?.lastError ? ` — ${sshManager.lastError}` : "";
+        setStatus(`[!] Failed to connect to ${conn.name}${detail}`);
         return;
       }
       setStatus(`[ok] Connected to ${conn.name}`);
@@ -78,7 +80,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       } else if (conn.type === "http") {
         setItems(["GET /", "GET /health", "GET /status", "GET /api", "GET /docs"]);
       } else if (conn.type === "ssh") {
-        setItems(["exec <command>", "sysinfo", "disk", "mem", "procs", "net"]);
+        setItems(["exec <command>", "sysinfo", "disk", "mem", "procs", "net", "logs", "logs <service>", "logs docker <container>"]);
       } else {
         const db = manager as DatabaseManager;
         try {
@@ -115,6 +117,25 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       setOverlayContent(lines);
       setOverlay("info");
       setOverlayScroll(0);
+      return;
+    }
+
+    if (command === "logs" && conn.type !== "s3") {
+      const manager = getManager(conn.type);
+      if (manager?.getLogs) {
+        const rest = trimmed.slice(5).trim();
+        const opts = rest ? { service: rest } : {};
+        try {
+          const lines = await manager.getLogs(conn, opts);
+          setOverlayContent(lines);
+          setOverlay(rest ? `logs: ${rest}` : "logs");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+      } else {
+        setStatus("[!] Logs not supported for this service type");
+      }
       return;
     }
 
@@ -653,13 +674,13 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
 
 function getPlaceholder(type: string): string {
   switch (type) {
-    case "redis": return "get <key> · set <key> <val> · del <key> · keys <pattern> · flushdb · info · refresh · back";
+    case "redis": return "get <key> · set <key> <val> · del <key> · keys <pattern> · flushdb · info · logs · refresh · back";
     case "s3": return "ls <bucket> · mkbucket <name> · rmbucket <name> · info · refresh · back";
     case "postgres":
-    case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · back";
-    case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · back";
-    case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · refresh · back";
-    case "ssh": return "exec <cmd> · sysinfo · disk · mem · procs · net · info · refresh · back";
+    case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · logs · back";
+    case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · logs · back";
+    case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · logs · refresh · back";
+    case "ssh": return "exec <cmd> · sysinfo · disk · mem · procs · net · logs [service] · logs docker <ctr> · info · refresh · back";
     default: return "info · refresh · back";
   }
 }
