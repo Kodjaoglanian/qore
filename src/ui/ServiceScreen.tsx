@@ -153,6 +153,11 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       return;
     }
 
+    if (command === "quit" || command === "exit") {
+      process.exit(0);
+      return;
+    }
+
     if (command === "refresh") {
       loadInitial();
       return;
@@ -1448,14 +1453,14 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
 
 function getPlaceholder(type: string): string {
   switch (type) {
-    case "redis": return "get <key> · set <key> <val> · del <key> · keys <pattern> · flushdb · info · logs · refresh · back";
-    case "s3": return "ls <bucket> · mkbucket <name> · rmbucket <name> · upload <local> <bucket/key> · download <bucket/key> <local> · rm <bucket> <key> · presign <bucket> <key> · info · refresh · back";
+    case "redis": return "get <key> · set <key> <val> · del <key> · keys <pattern> · flushdb · info · logs · refresh · back · quit";
+    case "s3": return "ls <bucket> · mkbucket <name> · rmbucket <name> · upload <local> <bucket/key> · download <bucket/key> <local> · rm <bucket> <key> · presign <bucket> <key> · info · refresh · back · quit";
     case "postgres":
-    case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · export <db> <t> · explain <db> <sql> · slow-queries · logs · back";
-    case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · export <db> <coll> · explain <db> <json> · slow-queries · logs · back";
-    case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · logs · refresh · back";
-    case "ssh": return "exec <cmd> · ports · firewall · top · netstat · tail <f> · edit <f> · security-audit · snapshot · diff <s1> <s2> · deploy <script> · git-status · compose <up|down|ps|logs> · ls · cat · find · services · docker ps · docker logs · users · cron · pkgs · kill · ping · upload/download · logs · reboot yes · back";
-    default: return "info · refresh · back";
+    case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · export <db> <t> · explain <db> <sql> · slow-queries · logs · back · quit";
+    case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · export <db> <coll> · explain <db> <json> · slow-queries · logs · back · quit";
+    case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · logs · refresh · back · quit";
+    case "ssh": return "exec <cmd> · ports · firewall · top · netstat · tail <f> · edit <f> · security-audit · snapshot · diff <s1> <s2> · deploy <script> · git-status · compose <up|down|ps|logs> · ls · cat · find · services · docker ps · docker logs · users · cron · pkgs · kill · ping · upload/download · logs · reboot yes · back · quit";
+    default: return "info · refresh · back · quit";
   }
 }
 

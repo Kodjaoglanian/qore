@@ -86,6 +86,7 @@ export function App() {
         case "exit":
           if (vault) vault.lock();
           exit();
+          process.exit(0);
           break;
         case "":
           break;
