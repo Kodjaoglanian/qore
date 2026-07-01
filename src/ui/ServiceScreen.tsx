@@ -1095,6 +1095,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
           onSubmit={handleSubmit}
           placeholder={isStreaming ? "type input · Enter to send · esc to cancel" : getPlaceholder(conn.type)}
           history={cmdHistory}
+          completions={items}
         />
       </Box>
 
@@ -1106,6 +1107,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
           ] : [
             { key: "Up/Dn", label: "select" },
             { key: "Enter", label: "execute" },
+            { key: "Tab", label: "autocomplete" },
             { key: "esc", label: "back" },
           ]}
         />

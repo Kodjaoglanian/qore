@@ -9,6 +9,7 @@ interface InputBarProps {
   prompt?: string;
   masked?: boolean;
   history?: string[];
+  completions?: string[];
 }
 
 export function InputBar({
@@ -18,10 +19,12 @@ export function InputBar({
   prompt = ">",
   masked = false,
   history = [],
+  completions = [],
 }: InputBarProps) {
   const [value, setValue] = useState("");
   const histIdx = useRef(history.length);
   const draft = useRef("");
+  const tabIdx = useRef(0);
 
   useInput(
     (input, key) => {
@@ -31,6 +34,17 @@ export function InputBar({
         histIdx.current = history.length;
         draft.current = "";
         return;
+      }
+      if (key.tab && completions.length > 0) {
+        const prefix = value.trim().toLowerCase();
+        if (prefix) {
+          const matches = completions.filter((c) => c.toLowerCase().startsWith(prefix));
+          if (matches.length > 0) {
+            tabIdx.current = (tabIdx.current + 1) % matches.length;
+            setValue(matches[tabIdx.current % matches.length]);
+            return;
+          }
+        }
       }
       if (key.upArrow && history.length > 0) {
         if (histIdx.current === history.length) draft.current = value;
@@ -51,7 +65,7 @@ export function InputBar({
         setValue("");
         return;
       }
-      if (input && !key.ctrl && !key.meta && !key.escape) {
+      if (input && !key.ctrl && !key.meta && !key.escape && !key.tab) {
         setValue((v) => v + input);
       }
     },
