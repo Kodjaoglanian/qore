@@ -13,14 +13,7 @@ function stripAnsi(str: string): string {
 }
 
 function normalizeCr(str: string): string {
-  const lines = str.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].includes("\r")) {
-      const parts = lines[i].split("\r");
-      lines[i] = parts[parts.length - 1] ?? "";
-    }
-  }
-  return lines.join("\n");
+  return str.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 function cleanOutput(str: string): string {
@@ -85,7 +78,8 @@ export class SshManager implements ConnectionManager {
           ? command.replace(/\bsudo\b/g, "sudo -S")
           : command;
 
-        client.exec(finalCommand, { pty: true }, (err: any, stream: any) => {
+        const execOpts: any = hasSudo ? { pty: true } : {};
+        client.exec(finalCommand, execOpts, (err: any, stream: any) => {
           if (err) {
             clearTimeout(timeout);
             client.end();
