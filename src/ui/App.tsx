@@ -138,6 +138,7 @@ export function App() {
         {screen === "help" && <HelpScreen onCommand={handleCommand} />}
         {screen === "connections" && (
           <ConnectionsScreen
+            key={vault ? "unlocked" : "locked"}
             vault={vault}
             onVaultUnlock={handleVaultUnlock}
             onConnect={handleConnect}
