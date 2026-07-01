@@ -88,9 +88,11 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       } else if (conn.type === "ssh") {
         setItems([
           "exec <command>", "sysinfo", "disk", "mem", "procs", "net",
+          "ports", "firewall [status|allow|deny|enable|disable]",
+          "top", "netstat", "tail <file> [-f]", "edit <file>",
           "ls [path]", "cat <file>", "find <pattern> [path]", "du [path]",
           "services", "svc <action> <name>",
-          "docker ps", "docker images", "docker stats", "docker <start|stop|restart|rm> <ctr>",
+          "docker ps", "docker images", "docker stats", "docker logs [-f] <ctr>", "docker <start|stop|restart|rm> <ctr>",
           "users", "cron", "env", "pkgs [search]",
           "kill <pid> [signal]", "ping <host>",
           "upload <local> <remote>", "download <remote> <local>",
@@ -392,6 +394,118 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
         }
         return;
       }
+      if (command === "ports") {
+        try {
+          const result = await ssh.exec(conn, "ss -tlnp 2>/dev/null | head -50 || netstat -tlnp 2>/dev/null | head -50");
+          const lines = result.stdout.split("\n").map((l) => `  ${l}`);
+          setOverlayContent(lines);
+          setOverlay("listening ports");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "firewall") {
+        const sub = parts[1];
+        try {
+          if (sub === "status" || !sub) {
+            const result = await ssh.exec(conn, "sudo ufw status verbose 2>/dev/null || sudo iptables -L -n 2>/dev/null | head -50");
+            setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+            setOverlay("firewall status");
+          } else if ((sub === "allow" || sub === "deny") && rawParts[2]) {
+            const result = await ssh.exec(conn, `sudo ufw ${sub} ${rawParts[2]} 2>&1`);
+            setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+            setOverlay(`firewall ${sub} ${rawParts[2]}`);
+            setStatus(`[ok] ufw ${sub} ${rawParts[2]}`);
+          } else if (sub === "enable") {
+            const result = await ssh.exec(conn, "sudo ufw enable 2>&1");
+            setStatus(`[ok] ufw enabled`);
+            setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+            setOverlay("firewall enable");
+          } else if (sub === "disable") {
+            const result = await ssh.exec(conn, "sudo ufw disable 2>&1");
+            setStatus(`[ok] ufw disabled`);
+            setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+            setOverlay("firewall disable");
+          } else {
+            setStatus("[!] Usage: firewall [status|allow <port>|deny <port>|enable|disable]");
+            return;
+          }
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "top") {
+        try {
+          const result = await ssh.exec(conn, "ps aux --sort=-%cpu | head -25");
+          const lines = result.stdout.split("\n").map((l) => `  ${l}`);
+          setOverlayContent(lines);
+          setOverlay("top processes by CPU");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "netstat") {
+        try {
+          const result = await ssh.exec(conn, "ss -tnp 2>/dev/null | head -50 || netstat -tnp 2>/dev/null | head -50");
+          const lines = result.stdout.split("\n").map((l) => `  ${l}`);
+          setOverlayContent(lines);
+          setOverlay("active connections");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "tail" && rawParts[1]) {
+        const file = rawParts[1];
+        const follow = parts.includes("-f") || parts.includes("--follow");
+        if (follow) {
+          setPtyTitle(`tail -f ${file}`);
+          setOverlay(null);
+          setOverlayContent([]);
+          try {
+            const termW = Math.min(process.stdout.columns || 80, 200);
+            const termH = Math.max(8, (process.stdout.rows || 24) - 6);
+            const pty = await ssh.execPty(conn, `tail -f ${file}`, termW, termH, () => {});
+            setPtyHandle(pty);
+          } catch (err) {
+            setStatus(`[!] ${(err as Error).message}`);
+          }
+        } else {
+          try {
+            const count = parts[2] && /^\d+$/.test(parts[2]) ? parts[2] : "100";
+            const result = await ssh.exec(conn, `tail -n ${count} ${file} 2>&1`);
+            setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+            setOverlay(`tail ${file}`);
+            setOverlayScroll(0);
+          } catch (err) {
+            setStatus(`[!] ${(err as Error).message}`);
+          }
+        }
+        return;
+      }
+      if (command === "edit" && rawParts[1]) {
+        const editor = process.env.EDITOR || "nano";
+        const file = rawParts[1];
+        setPtyTitle(`edit: ${file}`);
+        setOverlay(null);
+        setOverlayContent([]);
+        try {
+          const termW = Math.min(process.stdout.columns || 80, 200);
+          const termH = Math.max(8, (process.stdout.rows || 24) - 6);
+          const pty = await ssh.execPty(conn, `${editor} ${file}`, termW, termH, () => {});
+          setPtyHandle(pty);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
       if (command === "ls") {
         const path = trimmed.slice(2).trim() || ".";
         try {
@@ -491,8 +605,28 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
             const result = await ssh.exec(conn, "docker stats --no-stream 2>&1");
             setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
             setOverlay("docker stats");
+          } else if (action === "logs" && rawParts[2]) {
+            const container = rawParts[2];
+            const follow = parts.includes("-f") || parts.includes("--follow");
+            if (follow) {
+              setPtyTitle(`docker logs -f ${container}`);
+              setOverlay(null);
+              setOverlayContent([]);
+              try {
+                const termW = Math.min(process.stdout.columns || 80, 200);
+                const termH = Math.max(8, (process.stdout.rows || 24) - 6);
+                const pty = await ssh.execPty(conn, `docker logs -f ${container}`, termW, termH, () => {});
+                setPtyHandle(pty);
+              } catch (err) {
+                setStatus(`[!] ${(err as Error).message}`);
+              }
+            } else {
+              const result = await ssh.exec(conn, `docker logs --tail 100 ${container} 2>&1`);
+              setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+              setOverlay(`docker logs ${container}`);
+            }
           } else {
-            setStatus("[!] Usage: docker <ps|images|stats|start|stop|restart|rm> [container]");
+            setStatus("[!] Usage: docker <ps|images|stats|logs [-f] <ctr>|start|stop|restart|rm> [container]");
             return;
           }
           setOverlayScroll(0);
@@ -982,7 +1116,7 @@ function getPlaceholder(type: string): string {
     case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · logs · back";
     case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · logs · back";
     case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · logs · refresh · back";
-    case "ssh": return "exec <cmd> · ls · cat <f> · find <p> · services · svc <act> <n> · docker ps · users · cron · pkgs · kill <pid> · ping <h> · upload/download · logs · reboot yes · back";
+    case "ssh": return "exec <cmd> · ports · firewall · top · netstat · tail <f> · edit <f> · ls · cat · find · services · docker ps · docker logs · users · cron · pkgs · kill · ping · upload/download · logs · reboot yes · back";
     default: return "info · refresh · back";
   }
 }
