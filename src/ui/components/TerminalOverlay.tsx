@@ -45,6 +45,7 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
   const renderTick = useRef(0);
   const scrollOffset = useRef(0);
   const [showScroll, setShowScroll] = useState(false);
+  const [finished, setFinished] = useState<number | null>(null);
 
   const termW = Math.min(process.stdout.columns || 80, 200);
   const termH = Math.max(8, (process.stdout.rows || 24) - 6);
@@ -80,8 +81,8 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
       pty.stream.on("data", (d: Buffer) => dataHandler(d.toString()));
 
       const closeHandler = (code: number) => {
-        const result = { exitCode: code ?? 0, stdout: "", stderr: "" };
-        onDone(result);
+        setFinished(code ?? 0);
+        renderScreen();
       };
 
       pty.stream.on("close", closeHandler);
@@ -98,8 +99,12 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
     if (!term) return;
 
     if (key.escape) {
-      pty.cancel();
-      onCancel();
+      if (finished !== null) {
+        onDone({ exitCode: finished, stdout: "", stderr: "" });
+      } else {
+        pty.cancel();
+        onCancel();
+      }
       return;
     }
 
@@ -135,6 +140,8 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
 
     scrollOffset.current = 0;
     setShowScroll(false);
+
+    if (finished !== null) return;
 
     if (key.return) {
       pty.send("\r");
@@ -206,8 +213,8 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
   return (
     <Box flexDirection="column" height={termH + 2}>
       <Box marginBottom={0} flexDirection="row" justifyContent="space-between">
-        <Text color={colors.purpleBright} bold>
-          {"  > "}{title}{" [terminal — type to interact · esc to exit]"}
+        <Text color={finished !== null ? colors.green : colors.purpleBright} bold>
+          {"  > "}{title}{finished !== null ? ` [done exit=${finished} · esc to return]` : " [terminal — type to interact · esc to exit]"}
         </Text>
         {showScroll && (
           <ScrollIndicator
