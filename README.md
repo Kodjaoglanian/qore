@@ -42,23 +42,40 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 - **Docker Integration**: Control containers directly through `/var/run/docker.sock`. No `docker` CLI dependency.
 - **Hybrid Storage**: Switch between local emulated S3 (SQLite + filesystem) and real AWS S3 credentials.
 - **Credential Vault**: Encrypt connections at rest with a single master password.
-- **Protocol-Native Drivers**: Redis, PostgreSQL, MongoDB, S3-compatible, and HTTP support without vendor lock-in.
+- **Protocol-Native Drivers**: Redis, PostgreSQL, MySQL, MongoDB, S3-compatible, HTTP API, and SSH support without vendor lock-in.
+- **Vault Management**: Change master password and import/export encrypted connection bundles.
+- **Self-Updating**: Run `qore update` to download the latest version automatically.
+- **Multi-Platform**: Prebuilt binaries for Linux (x64/arm64), macOS (Apple Silicon/Intel), and Windows (x64).
 - **Keyboard-First TUI**: Type commands, use arrow keys for selection, and press Escape to navigate back.
 
 ---
 
 ## Quick Start
 
-### One-command install
+### One-command install (Linux / macOS)
 
 ```bash
 curl -fsSL https://github.com/Kodjaoglanian/qore/releases/latest/download/install.sh | bash
 ```
 
-This downloads the latest precompiled binary for your platform and installs it to `~/.local/bin/qore`. After installation, run:
+### Windows (PowerShell)
+
+```powershell
+irm https://github.com/Kodjaoglanian/qore/releases/latest/download/install.ps1 | iex
+```
+
+This downloads the latest precompiled binary for your platform and installs it to `~/.local/bin/qore` (or `%LOCALAPPDATA%\Qore` on Windows). After installation, run:
 
 ```bash
 qore
+```
+
+### Updating
+
+To update an existing installation to the latest version:
+
+```bash
+qore update
 ```
 
 ### From source
@@ -150,10 +167,13 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 
 | Command | Description |
 |---------|-------------|
-| `add` | Add a new connection |
+| `add` | Add a new connection (redis, postgres, mysql, mongo, s3, http, ssh) |
 | `connect <n>` | Connect to saved connection number n |
 | `test <n>` | Test connection number n |
 | `rm <n>` | Remove connection number n |
+| `changepw` | Change vault master password |
+| `export` | Export connections as encrypted bundle |
+| `import` | Import connections from encrypted bundle |
 
 ### Service screen (database commands)
 
@@ -189,6 +209,27 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 | `mkbucket <name>` | Create a new bucket |
 | `rmbucket <name>` | Delete a bucket |
 
+### HTTP API commands
+
+| Command | Description |
+|---------|-------------|
+| `get <path>` | Send GET request |
+| `post <path> <body>` | Send POST request with JSON body |
+| `put <path> <body>` | Send PUT request with JSON body |
+| `patch <path> <body>` | Send PATCH request with JSON body |
+| `delete <path>` | Send DELETE request |
+
+### SSH commands
+
+| Command | Description |
+|---------|-------------|
+| `exec <command>` | Execute a command over SSH |
+| `sysinfo` | Show system information |
+| `disk` | Show disk usage |
+| `mem` | Show memory usage |
+| `procs` | List running processes |
+| `net` | Show network connections |
+
 ---
 
 ## Architecture
@@ -216,7 +257,12 @@ src/
       redis.ts           # Redis RESP driver
       s3.ts              # S3-compatible REST driver
       postgres.ts        # PostgreSQL wire driver
+      mysql.ts           # MySQL driver (mysql2)
       mongo.ts           # MongoDB wire driver
+      http.ts            # HTTP API manager (generic REST)
+      ssh.ts             # SSH remote manager (ssh2)
+  cli/
+    update.ts            # Self-update and CLI argument handling
   ui/
     App.tsx              # Root TUI component
     theme.ts             # Color palette
@@ -329,18 +375,19 @@ Implemented:
 - Core network probe
 - Docker Unix socket integration
 - Terminal-native welcome screen
-- Secure credential vault
-- Connection managers for Redis, S3-compatible storage, PostgreSQL, and MongoDB
+- Secure credential vault (AES-256-GCM + scrypt)
+- Connection managers for Redis, S3-compatible storage, PostgreSQL, MySQL, MongoDB, HTTP API, and SSH
 - Connections and service screens
+- Vault password change flow in the UI
+- Encrypted connection import and export (QOREX1 bundle format)
+- Multi-platform builds (Linux x64/arm64, macOS arm64/x64, Windows x64)
+- Self-updating via `qore update`
 
 Planned:
 
-- MySQL connection manager
-- SSH remote connection manager
-- HTTP API connection manager
-- Vault password change flow in the UI
-- Encrypted connection import and export
 - Service log aggregation and health checks
+- Local emulated S3 and Pub/Sub providers
+- Multi-architecture CI matrix for ARM native builds
 
 ---
 

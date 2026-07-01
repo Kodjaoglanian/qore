@@ -94,3 +94,12 @@ When modifying this repository, you MUST follow these constraints:
 - [x] Add HTTP API connection manager (generic REST).
 - [x] Implement vault password change flow in UI.
 - [x] Add connection import/export (encrypted bundle).
+- [x] Multi-platform CI builds (Linux x64/arm64, macOS arm64/x64, Windows x64).
+- [x] Self-updating via `qore update` CLI command.
+- [x] Windows PowerShell install script (install.ps1).
+
+### Next Features
+
+- [ ] Service log aggregation and health checks.
+- [ ] Local emulated S3 and Pub/Sub providers.
+- [ ] Multi-architecture CI matrix for ARM native builds.
