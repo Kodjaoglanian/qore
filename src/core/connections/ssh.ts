@@ -122,7 +122,7 @@ export class SshManager implements ConnectionManager {
     });
   }
 
-  async exec(config: ConnectionConfig, command: string, timeoutMs?: number): Promise<SshResult> {
+  async exec(config: ConnectionConfig, command: string, timeoutMs?: number, usePty?: boolean): Promise<SshResult> {
     const client = await this.connectClient(config);
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -135,7 +135,9 @@ export class SshManager implements ConnectionManager {
         ? command.replace(/\bsudo\b/g, "sudo -S")
         : command;
 
-      const execOpts: any = hasSudo ? { pty: true } : {};
+      const execOpts: any = (hasSudo || usePty)
+        ? { pty: { term: "xterm-256color", cols: 220, rows: 50 } }
+        : {};
       client.exec(finalCommand, execOpts, (err: any, stream: any) => {
         if (err) {
           clearTimeout(timeout);
@@ -175,6 +177,7 @@ export class SshManager implements ConnectionManager {
     command: string,
     onData: (chunk: string) => void,
     timeoutMs?: number,
+    usePty?: boolean,
   ): Promise<ExecStreamHandle> {
     const client = await this.connectClient(config);
 
@@ -184,7 +187,9 @@ export class SshManager implements ConnectionManager {
         ? command.replace(/\bsudo\b/g, "sudo -S")
         : command;
 
-      const execOpts: any = hasSudo ? { pty: true } : {};
+      const execOpts: any = (hasSudo || usePty)
+        ? { pty: { term: "xterm-256color", cols: 220, rows: 50 } }
+        : {};
       client.exec(finalCommand, execOpts, (err: any, stream: any) => {
         if (err) {
           client.end();
