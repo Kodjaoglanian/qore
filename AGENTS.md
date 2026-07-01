@@ -62,14 +62,17 @@ Protocol-level integrations with real services. No mocks, no vendor lock-in.
 - `mysql.ts`: MySQL driver via `mysql2/promise`. Works with MySQL, MariaDB.
 - `mongo.ts`: MongoDB wire protocol via `mongodb` driver. Works with MongoDB, FerretDB.
 - `http.ts`: Generic HTTP/REST client via `fetch`. GET, POST, PUT, PATCH, DELETE.
-- `ssh.ts`: SSH remote manager via `ssh2`. Exec commands, SFTP upload/download, journalctl/syslog logs, Docker container management, systemd service control. PTY only for sudo commands.
+- `ssh.ts`: SSH remote manager via `ssh2`. Exec commands, SFTP upload/download, journalctl/syslog logs, Docker container management, systemd service control, PTY for interactive commands (edit, deploy, tail -f), security audit, server snapshots, Docker Compose management, git-status, firewall (UFW), ports scanning.
 
 ### 3. TUI & Render Pipeline (`src/ui/`)
 
 - The UI must match the `torlink` visual identity: clean box-drawing characters (`┌ ┐ └ ┘ ─ │`), minimalist text-based tabs, and no bloated layouts.
 - Colors are strictly defined: Dark Backgrounds, Electric Purple highlights (`#A370F7`) for active focus/borders, and Muted Blue-Grays (`#5C5B66`) for background context/shortcuts.
 - **Screens**: Welcome -> Discover (Docker/ports/daemons) -> Vault (unlock/create) -> Connections (list/add/test) -> Service (type-specific management: Redis/S3/Postgres/MySQL/Mongo/HTTP/SSH).
-- **Input Model**: InputBar is always focused. Commands are typed + Enter. Only arrow keys/tab/escape are handled by `useInput` for navigation. No single-key shortcuts that conflict with typing.
+- **Input Model**: InputBar is always focused. Commands are typed + Enter. Arrow keys navigate command list when input is empty, or navigate command history when input has text. Tab cycles autocomplete. No single-key shortcuts that conflict with typing.
+- **Multi-Connection**: Multiple service connections can be open simultaneously as tabs. Switch with Ctrl+Tab / Ctrl+Arrows. Each ServiceScreen instance is keyed by connection ID.
+- **Favorites**: Starred commands stored in `~/.qore/favorites.json`. Use `star <cmd>` / `unstar <cmd>` / `favorites`.
+- **Snapshots**: SSH server state snapshots saved to `~/.qore/snapshots/` as JSON files. Compare with `diff <s1> <s2>`.
 
 ---
 
@@ -102,6 +105,14 @@ When modifying this repository, you MUST follow these constraints:
 - [x] Windows PowerShell install script (install.ps1).
 - [x] Service log aggregation (`getLogs` in all managers: SSH/Redis/Postgres/MySQL/Mongo/HTTP).
 - [x] SSH toolkit expansion: file ops, service control, Docker management, SFTP transfer, process/network utilities.
+- [x] SSH management: ports, firewall (UFW), top, netstat, tail -f, edit via PTY.
+- [x] SSH security-audit: 8-point checklist (SSH config, firewall, fail2ban, updates, ports, logins).
+- [x] SSH snapshots & diff: save/compare server state.
+- [x] SSH DevOps: deploy scripts, git-status, Docker Compose management.
+- [x] UX: command history, Tab autocomplete, favorites, multi-connection tabs.
+- [x] Database: export to CSV, EXPLAIN query plan, slow queries monitoring.
+- [x] S3: upload, download, delete objects, pre-signed URLs (AWS SigV4).
+- [x] quit/exit command from any screen (process.exit fallback for active SSH).
 
 ### Next Features
 

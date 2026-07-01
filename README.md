@@ -47,6 +47,16 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 - **Self-Updating**: Run `qore update` to download the latest version automatically.
 - **Multi-Platform**: Prebuilt binaries for Linux (x64/arm64), macOS (Apple Silicon), and Windows (x64).
 - **Keyboard-First TUI**: Type commands, use arrow keys for selection, and press Escape to navigate back.
+- **Multi-Connection Tabs**: Open multiple service connections simultaneously and switch between them with Ctrl+Tab / Ctrl+Arrow keys.
+- **Command History**: Navigate previous commands with Up/Down arrows when the input bar has text.
+- **Tab Autocomplete**: Press Tab to cycle through matching commands.
+- **Favorites**: Star frequently used commands with `star <cmd>` and recall them with `favorites`.
+- **SSH Security Audit**: Run a comprehensive security checklist on remote servers.
+- **Snapshots & Diff**: Save server state snapshots and compare them to detect changes over time.
+- **DevOps Commands**: Deploy scripts, check git status, and manage Docker Compose on remote servers.
+- **Database Export**: Export table data to CSV files.
+- **Query Analysis**: Run EXPLAIN plans and monitor slow queries across PostgreSQL, MySQL, and MongoDB.
+- **S3 File Management**: Upload, download, delete objects, and generate pre-signed URLs.
 
 ---
 
@@ -131,6 +141,8 @@ Qore creates the following local directories on first run:
   vault.meta.json     # Vault metadata
   storage/            # Local emulated S3 objects
   metadata.db         # SQLite metadata for local storage
+  favorites.json      # Starred commands
+  snapshots/          # SSH server state snapshots (JSON)
 ```
 
 ---
@@ -148,7 +160,20 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 | `vault` | Create or unlock the credential vault |
 | `help` | Show the full command reference |
 | `back` / `esc` | Return to the previous screen |
-| `quit` / `^c` | Exit Qore |
+| `quit` / `exit` / `^c` | Exit Qore from any screen |
+
+### UX commands (available on service screens)
+
+| Command | Description |
+|---------|-------------|
+| `star <command>` | Add a command to favorites |
+| `unstar <command>` | Remove a command from favorites |
+| `favorites` | List all starred commands |
+| `Up/Down` (empty input) | Navigate command list |
+| `Up/Down` (with text) | Navigate command history |
+| `Tab` | Autocomplete matching commands |
+| `Ctrl+Tab` / `Ctrl+→` | Switch to next connection tab |
+| `Ctrl+←` | Switch to previous connection tab |
 
 ### Discovery screen
 
@@ -200,6 +225,9 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 | `conns` | Show active connections |
 | `queries` | Show running queries |
 | `query <db> <sql>` | Run a custom query |
+| `export <db> <table>` | Export table data to CSV file |
+| `explain <db> <sql>` | Run EXPLAIN query plan analysis |
+| `slow-queries` | Show slow queries (pg_stat_statements, mysql.slow_log, MongoDB profiler) |
 
 ### Redis commands
 
@@ -220,6 +248,10 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 | `ls <bucket>` | List objects in bucket |
 | `mkbucket <name>` | Create a new bucket |
 | `rmbucket <name>` | Delete a bucket |
+| `upload <local> <bucket/key>` | Upload a local file to S3 |
+| `download <bucket/key> <local>` | Download an S3 object to local file |
+| `rm <bucket> <key>` | Delete an object from a bucket |
+| `presign <bucket> <key>` | Generate a pre-signed URL (1 hour expiry) |
 
 ### HTTP API commands
 
@@ -236,12 +268,24 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 
 | Command | Description |
 |---------|-------------|
-| `exec <command>` | Execute a shell command over SSH |
+| `exec <command>` | Execute a shell command over SSH (interactive PTY) |
 | `sysinfo` | Show system information (uname, hostname, uptime, disk, memory) |
 | `disk` | Show disk usage (`df -h`) |
 | `mem` | Show memory usage (`free -h`) |
 | `procs` | List running processes (`ps aux`) |
 | `net` | Show listening ports (`ss -tlnp`) |
+| `ports` | Show listening ports with process info (top 50) |
+| `firewall [status\|allow\|deny\|enable\|disable]` | UFW firewall management |
+| `top` | Show top processes by CPU usage |
+| `netstat` | Show active network connections |
+| `tail <file> [-f]` | Tail a file (optionally follow in real-time) |
+| `edit <file>` | Open a file in nano/vim via PTY |
+| `security-audit` | Run 8-point security checklist (SSH config, firewall, fail2ban, updates, ports, logins) |
+| `snapshot` | Save server state to local JSON file (disk, mem, procs, services, ports, uptime, kernel) |
+| `diff <snap1> <snap2>` | Compare two snapshot files line-by-line |
+| `deploy <script>` | Run a deploy script via PTY with real-time output |
+| `git-status` | Find git repos on server and show status and recent commits |
+| `compose <up\|down\|ps\|logs\|restart\|pull> [service]` | Manage Docker Compose |
 | `ls [path]` | List directory contents (`ls -la`) |
 | `cat <file>` | View file contents (first 500 lines) |
 | `find <pattern> [path]` | Search for files by name |
@@ -251,6 +295,7 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 | `docker ps` | List all Docker containers |
 | `docker images` | List Docker images |
 | `docker stats` | Show Docker container resource stats |
+| `docker logs [-f] <ctr>` | View or follow container logs |
 | `docker <start\|stop\|restart\|rm> <ctr>` | Manage a Docker container |
 | `users` | Show currently logged-in users |
 | `cron` | List crontab entries |
@@ -264,6 +309,7 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 | `logs docker <container>` | View Docker container logs |
 | `reboot yes` | Reboot the remote machine (requires explicit confirmation) |
 | `shutdown yes` | Shut down the remote machine (requires explicit confirmation) |
+| `quit` / `exit` | Exit Qore from any screen |
 
 ---
 
@@ -419,6 +465,13 @@ Implemented:
 - Self-updating via `qore update`
 - Service log aggregation (SSH/Redis/Postgres/MySQL/Mongo/HTTP)
 - SSH toolkit: file operations, service control, Docker management, SFTP transfer, process/network utilities
+- SSH management: ports, firewall, top, netstat, tail, edit, docker logs -f
+- UX improvements: command history, Tab autocomplete, favorites, multi-connection tabs
+- Database features: export to CSV, EXPLAIN query plan, slow queries monitoring
+- S3 operations: upload, download, delete objects, pre-signed URLs (AWS SigV4)
+- Security & infrastructure: security-audit, server snapshots, snapshot diff
+- DevOps: deploy scripts, git-status, Docker Compose management
+- quit/exit command from any screen
 
 Planned:
 
