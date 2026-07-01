@@ -115,6 +115,33 @@ export class MysqlManager implements DatabaseManager {
        ORDER BY time DESC`);
   }
 
+  async exportQuery(config: ConnectionConfig, database: string, table: string): Promise<string> {
+    const result = await this.query(config, database,
+      `SELECT * FROM \`${table.replace(/`/g, "``")}\` LIMIT 10000`);
+    if (result.rows.length === 0) return "";
+    const cols = result.columns;
+    const lines: string[] = [cols.join(",")];
+    for (const row of result.rows) {
+      lines.push(cols.map((c) => {
+        const v = row[c];
+        if (v === null || v === undefined) return "";
+        const s = String(v);
+        if (s.includes(",") || s.includes('"') || s.includes("\n")) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+      }).join(","));
+    }
+    return lines.join("\n");
+  }
+
+  async explainQuery(config: ConnectionConfig, database: string, sql: string): Promise<QueryResult> {
+    return this.query(config, database, `EXPLAIN ${sql}`);
+  }
+
+  async slowQueries(config: ConnectionConfig): Promise<QueryResult> {
+    return this.query(config, config.database ?? "mysql",
+      `SELECT * FROM mysql.slow_log ORDER BY start_time DESC LIMIT 20`);
+  }
+
   async getLogs(config: ConnectionConfig, opts?: { tail?: number }): Promise<string[]> {
     const lines: string[] = [];
     const tail = opts?.tail ?? 100;
