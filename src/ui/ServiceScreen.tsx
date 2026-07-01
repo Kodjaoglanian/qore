@@ -311,13 +311,19 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
     if (conn.type === "ssh") {
       const ssh = getManager(conn.type) as SshManager;
       if (command === "exec") {
-        const cmd = trimmed.slice(5).trim();
-        if (!cmd) {
+        const rawCmd = trimmed.slice(5).trim();
+        if (!rawCmd) {
           setStatus("[!] Usage: exec <command>");
           return;
         }
-        setOverlay(`exec: ${cmd}`);
-        const acc: string[] = [];
+        const resolution = resolveInteractiveCommand(rawCmd);
+        if (resolution.blocked) {
+          setStatus(`[!] ${resolution.message}`);
+          return;
+        }
+        const cmd = resolution.cmd;
+        setOverlay(`exec: ${rawCmd}`);
+        const acc: string[] = resolution.note ? [`  [note] ${resolution.note}`] : [];
         const overlayH = Math.max(1, availH - BOX_OVERHEAD);
         const pushLines = (text: string) => {
           for (const line of text.split("\n")) {
@@ -327,7 +333,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
           setOverlayContent([...acc]);
           setOverlayScroll(Math.max(0, acc.length - overlayH));
         };
-        setOverlayContent(["  [running...]"]);
+        setOverlayContent(acc.length > 0 ? [...acc, "  [running...]"] : ["  [running...]"]);
         setOverlayScroll(0);
         try {
           const handle = await ssh.execStream(conn, cmd, (chunk: string) => {
@@ -956,6 +962,63 @@ function getPlaceholder(type: string): string {
     case "ssh": return "exec <cmd> · ls · cat <f> · find <p> · services · svc <act> <n> · docker ps · users · cron · pkgs · kill <pid> · ping <h> · upload/download · logs · reboot yes · back";
     default: return "info · refresh · back";
   }
+}
+
+interface InteractiveResolution {
+  blocked: boolean;
+  message?: string;
+  cmd: string;
+  note?: string;
+}
+
+function resolveInteractiveCommand(cmd: string): InteractiveResolution {
+  const withoutSudo = cmd.replace(/^\s*sudo\s+/, "");
+  const bin = withoutSudo.trim().split(/\s+/)[0] || "";
+
+  const blockedApps: Record<string, string> = {
+    vim: "Interactive editors aren't supported here. Use `cat <file>` to view or `upload`/`download` to edit locally.",
+    vi: "Interactive editors aren't supported here. Use `cat <file>` to view or `upload`/`download` to edit locally.",
+    nano: "Interactive editors aren't supported here. Use `cat <file>` to view or `upload`/`download` to edit locally.",
+    emacs: "Interactive editors aren't supported here. Use `cat <file>` to view or `upload`/`download` to edit locally.",
+    tmux: "Terminal multiplexers aren't supported in this text-based view.",
+    screen: "Terminal multiplexers aren't supported in this text-based view.",
+    ssh: "Nested SSH sessions aren't supported here. Add the target as its own connection.",
+    mysql: "Interactive DB shells aren't supported here. Use the built-in database commands instead.",
+    psql: "Interactive DB shells aren't supported here. Use the built-in database commands instead.",
+    python: "Interactive REPLs aren't supported here. Pass a script instead, e.g. `python script.py`.",
+    python3: "Interactive REPLs aren't supported here. Pass a script instead, e.g. `python3 script.py`.",
+    node: "Interactive REPLs aren't supported here. Pass a script instead, e.g. `node script.js`.",
+    irb: "Interactive REPLs aren't supported here.",
+  };
+
+  if (blockedApps[bin]) {
+    return { blocked: true, message: blockedApps[bin], cmd };
+  }
+
+  if (bin === "htop") {
+    return { blocked: false, cmd: "top -bn1 | head -40", note: "htop needs a live terminal; showing a one-time snapshot via `top -bn1` instead." };
+  }
+
+  if (bin === "top" && !/-b\b/.test(withoutSudo)) {
+    return { blocked: false, cmd: "top -bn1 | head -40", note: "`top` needs a live terminal; showing a one-time snapshot via `top -bn1` instead." };
+  }
+
+  if (bin === "watch") {
+    const rest = withoutSudo.trim().slice(5).trim().replace(/^-\S+\s*/, "");
+    return { blocked: false, cmd: rest || "echo (no command given to watch)", note: "`watch` needs a live terminal; running the command once instead." };
+  }
+
+  if (bin === "less" || bin === "more") {
+    const file = withoutSudo.trim().split(/\s+/).slice(1).join(" ");
+    return { blocked: false, cmd: file ? `cat ${file} | head -500` : "echo (no file given)", note: `\`${bin}\` needs a live terminal; showing the first 500 lines via cat instead.` };
+  }
+
+  if (bin === "man") {
+    const rest = withoutSudo.trim().slice(3).trim();
+    return { blocked: false, cmd: rest ? `man ${rest} | col -b 2>/dev/null || man ${rest}` : "echo (no topic given)", note: "`man` needs a pager; showing plain text output instead." };
+  }
+
+  return { blocked: false, cmd };
 }
 
 function formatSize(bytes: number): string {
