@@ -56,7 +56,7 @@ export class SshManager implements ConnectionManager {
       }, 15000);
 
       client.on("ready", () => {
-        client.exec(command, (err, stream) => {
+        client.exec(command, (err: any, stream: any) => {
           if (err) {
             clearTimeout(timeout);
             client.end();
