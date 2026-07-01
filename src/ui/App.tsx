@@ -70,11 +70,7 @@ export function App() {
         case "back":
         case "home":
           if (screen === "service") {
-            setActiveConns((conns) => conns.filter((_, i) => i !== activeIdx));
-            setActiveIdx(0);
-            if (activeConns.length <= 1) {
-              setScreen("connections");
-            }
+            setScreen("connections");
           } else {
             setScreen("welcome");
           }
@@ -94,12 +90,24 @@ export function App() {
           break;
       }
     },
-    [runDiscovery, exit, vault, screen, activeConns, activeIdx]
+    [runDiscovery, exit, vault, screen]
   );
 
   const handleVaultUnlock = useCallback((v: Vault) => {
     setVault(v);
   }, []);
+
+  const handleCloseConn = useCallback(() => {
+    setActiveConns((conns) => {
+      const remaining = conns.filter((_, i) => i !== activeIdx);
+      if (remaining.length === 0) {
+        setScreen("connections");
+      } else {
+        setActiveIdx(Math.max(0, activeIdx - 1));
+      }
+      return remaining;
+    });
+  }, [activeIdx]);
 
   const handleConnect = useCallback((conn: ConnectionConfig) => {
     setActiveConns((prev) => {
@@ -168,32 +176,35 @@ export function App() {
             onVaultUnlock={handleVaultUnlock}
             onConnect={handleConnect}
             onBack={() => setScreen("welcome")}
+            activeConns={activeConns}
           />
         )}
         {screen === "service" && activeConns.length > 0 && (
           <>
             {activeConns.length > 1 && (
-              <Box flexDirection="row" height={1} width={termWidth} overflow="hidden">
-                {activeConns.map((c, i) => (
-                  <Box key={c.id} marginRight={1}>
-                    <Text color={i === activeIdx ? colors.purpleBright : colors.textMuted}>
-                      {i === activeIdx ? "▸ " : "  "}{CONNECTION_ICONS[c.type]} {c.name}
-                      {i === activeIdx ? " ◂" : ""}
-                    </Text>
-                  </Box>
-                ))}
+              <Box flexDirection="column" width={termWidth} flexShrink={0}>
+                <Box flexDirection="row" height={1} width={termWidth} overflow="hidden">
+                  {activeConns.map((c, i) => (
+                    <Box key={c.id} marginRight={1}>
+                      <Text color={i === activeIdx ? colors.purpleBright : colors.textMuted}>
+                        {i === activeIdx ? "▸ " : "  "}{CONNECTION_ICONS[c.type]} {c.name}
+                        {i === activeIdx ? " ◂" : ""}
+                      </Text>
+                    </Box>
+                  ))}
+                </Box>
+                <Box height={1} width={termWidth} overflow="hidden">
+                  <Text color={colors.textDim}> {"Ctrl+Tab switch · close to close tab · back for connections"}</Text>
+                </Box>
               </Box>
             )}
             <ServiceScreen
               key={activeConns[activeIdx].id}
               conn={activeConns[activeIdx]}
-              onBack={() => {
-                setActiveConns((conns) => conns.filter((_, i) => i !== activeIdx));
-                setActiveIdx(0);
-                if (activeConns.length <= 1) {
-                  setScreen("connections");
-                }
-              }}
+              onBack={() => setScreen("connections")}
+              onClose={handleCloseConn}
+              tabCount={activeConns.length}
+              tabIdx={activeIdx}
             />
           </>
         )}

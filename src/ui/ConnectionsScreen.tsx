@@ -17,11 +17,12 @@ interface ConnectionsScreenProps {
   onVaultUnlock: (vault: Vault) => void;
   onConnect: (conn: ConnectionConfig) => void;
   onBack: () => void;
+  activeConns?: ConnectionConfig[];
 }
 
 type View = "list" | "add" | "edit" | "changepw" | "export" | "import" | "unlock";
 
-export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack }: ConnectionsScreenProps) {
+export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, activeConns = [] }: ConnectionsScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalSize();
   const margin = Math.max(1, Math.floor(termWidth * 0.03));
   const innerWidth = Math.max(40, termWidth - margin * 2 - 4);
@@ -539,7 +540,9 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack }: C
                   </Box>
                 </Box>
               ) : (
-                connections.map((conn, i) => (
+                connections.map((conn, i) => {
+                  const isOpen = activeConns.some((c) => c.id === conn.id);
+                  return (
                   <Box key={conn.id} flexDirection="row">
                     <Text color={i === selectedIdx ? colors.purple : colors.textDim}>
                       {i === selectedIdx ? ">" : " "}{" "}
@@ -551,11 +554,15 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack }: C
                     <Text color={i === selectedIdx ? colors.purpleBright : colors.textMuted}>
                       {"  "}{conn.type} · {conn.host}:{conn.port}
                     </Text>
+                    {isOpen && (
+                      <Text color={colors.green} bold>{"  [open]"}</Text>
+                    )}
                     {testing === conn.id && (
                       <Text color={colors.yellow}>{"  testing..."}</Text>
                     )}
                   </Box>
-                ))
+                  );
+                })
               )}
               {status && (
                 <Box marginTop={1}>
