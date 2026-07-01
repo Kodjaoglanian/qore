@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import { Box, Text, useInput } from "ink";
 import { colors } from "../theme.js";
 
@@ -8,6 +8,8 @@ interface InputBarProps {
   focused?: boolean;
   prompt?: string;
   masked?: boolean;
+  history?: string[];
+  completions?: string[];
 }
 
 export function InputBar({
@@ -16,14 +18,43 @@ export function InputBar({
   focused = true,
   prompt = ">",
   masked = false,
+  history = [],
+  completions = [],
 }: InputBarProps) {
   const [value, setValue] = useState("");
+  const histIdx = useRef(history.length);
+  const draft = useRef("");
+  const tabIdx = useRef(0);
 
   useInput(
     (input, key) => {
       if (key.return) {
-        onSubmit(value);
+        if (value.trim()) onSubmit(value);
         setValue("");
+        histIdx.current = history.length;
+        draft.current = "";
+        return;
+      }
+      if (key.tab && completions.length > 0) {
+        const prefix = value.trim().toLowerCase();
+        if (prefix) {
+          const matches = completions.filter((c) => c.toLowerCase().startsWith(prefix));
+          if (matches.length > 0) {
+            tabIdx.current = (tabIdx.current + 1) % matches.length;
+            setValue(matches[tabIdx.current % matches.length]);
+            return;
+          }
+        }
+      }
+      if (key.upArrow && history.length > 0) {
+        if (histIdx.current === history.length) draft.current = value;
+        histIdx.current = Math.max(0, histIdx.current - 1);
+        setValue(history[histIdx.current] ?? "");
+        return;
+      }
+      if (key.downArrow && history.length > 0) {
+        histIdx.current = Math.min(history.length, histIdx.current + 1);
+        setValue(histIdx.current === history.length ? draft.current : (history[histIdx.current] ?? ""));
         return;
       }
       if (key.backspace || key.delete) {
@@ -34,7 +65,7 @@ export function InputBar({
         setValue("");
         return;
       }
-      if (input && !key.ctrl && !key.meta && !key.escape) {
+      if (input && !key.ctrl && !key.meta && !key.escape && !key.tab) {
         setValue((v) => v + input);
       }
     },

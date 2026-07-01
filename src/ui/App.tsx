@@ -12,6 +12,7 @@ import { StatusBar } from "./components/StatusBar.js";
 import { Orchestrator } from "../core/orchestrator.js";
 import { Vault } from "../core/vault/vault.js";
 import type { ConnectionConfig } from "../core/vault/types.js";
+import { CONNECTION_ICONS } from "../core/vault/types.js";
 import type { ProbeResult } from "../core/types.js";
 
 type Screen = "welcome" | "discover" | "help" | "connections" | "service";
@@ -26,7 +27,8 @@ export function App() {
   const [dockerStatus, setDockerStatus] = useState<"connected" | "disconnected" | "scanning">("disconnected");
   const [orchestrator] = useState(() => new Orchestrator());
   const [vault, setVault] = useState<Vault | null>(null);
-  const [activeConn, setActiveConn] = useState<ConnectionConfig | null>(null);
+  const [activeConns, setActiveConns] = useState<ConnectionConfig[]>([]);
+  const [activeIdx, setActiveIdx] = useState(0);
 
   useEffect(() => {
     setRawMode(true);
@@ -68,8 +70,11 @@ export function App() {
         case "back":
         case "home":
           if (screen === "service") {
-            setActiveConn(null);
-            setScreen("connections");
+            setActiveConns((conns) => conns.filter((_, i) => i !== activeIdx));
+            setActiveIdx(0);
+            if (activeConns.length <= 1) {
+              setScreen("connections");
+            }
           } else {
             setScreen("welcome");
           }
@@ -88,7 +93,7 @@ export function App() {
           break;
       }
     },
-    [runDiscovery, exit, vault, screen]
+    [runDiscovery, exit, vault, screen, activeConns, activeIdx]
   );
 
   const handleVaultUnlock = useCallback((v: Vault) => {
@@ -96,7 +101,15 @@ export function App() {
   }, []);
 
   const handleConnect = useCallback((conn: ConnectionConfig) => {
-    setActiveConn(conn);
+    setActiveConns((prev) => {
+      const existing = prev.findIndex((c) => c.id === conn.id);
+      if (existing >= 0) {
+        setActiveIdx(existing);
+        return prev;
+      }
+      setActiveIdx(prev.length);
+      return [...prev, conn];
+    });
     setScreen("service");
   }, []);
 
@@ -108,6 +121,17 @@ export function App() {
     if (key.ctrl && input === "c") {
       if (vault) vault.lock();
       exit();
+    }
+    if (screen === "service" && activeConns.length > 1) {
+      if ((key.ctrl && input === "\t") || (key.shift && key.tab)) {
+        setActiveIdx((i) => (i + 1) % activeConns.length);
+      }
+      if (key.leftArrow && key.ctrl) {
+        setActiveIdx((i) => (i - 1 + activeConns.length) % activeConns.length);
+      }
+      if (key.rightArrow && key.ctrl) {
+        setActiveIdx((i) => (i + 1) % activeConns.length);
+      }
     }
   });
 
@@ -145,8 +169,32 @@ export function App() {
             onBack={() => setScreen("welcome")}
           />
         )}
-        {screen === "service" && activeConn && (
-          <ServiceScreen conn={activeConn} onBack={() => { setActiveConn(null); setScreen("connections"); }} />
+        {screen === "service" && activeConns.length > 0 && (
+          <>
+            {activeConns.length > 1 && (
+              <Box flexDirection="row" height={1} width={termWidth} overflow="hidden">
+                {activeConns.map((c, i) => (
+                  <Box key={c.id} marginRight={1}>
+                    <Text color={i === activeIdx ? colors.purpleBright : colors.textMuted}>
+                      {i === activeIdx ? "▸ " : "  "}{CONNECTION_ICONS[c.type]} {c.name}
+                      {i === activeIdx ? " ◂" : ""}
+                    </Text>
+                  </Box>
+                ))}
+              </Box>
+            )}
+            <ServiceScreen
+              key={activeConns[activeIdx].id}
+              conn={activeConns[activeIdx]}
+              onBack={() => {
+                setActiveConns((conns) => conns.filter((_, i) => i !== activeIdx));
+                setActiveIdx(0);
+                if (activeConns.length <= 1) {
+                  setScreen("connections");
+                }
+              }}
+            />
+          </>
         )}
       </Box>
 

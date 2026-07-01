@@ -16,6 +16,7 @@ import type { DatabaseManager, StorageManager, QueryResult, ObjectInfo } from ".
 import type { HttpManager } from "../core/connections/http.js";
 import type { SshManager, PtyHandle } from "../core/connections/ssh.js";
 import { TerminalOverlay } from "./components/TerminalOverlay.js";
+import { loadFavorites, addFavorite, removeFavorite } from "../core/favorites.js";
 
 interface ServiceScreenProps {
   conn: ConnectionConfig;
@@ -44,6 +45,8 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
   const streamCancelRef = useRef<(() => void) | null>(null);
   const [ptyHandle, setPtyHandle] = useState<PtyHandle | null>(null);
   const [ptyTitle, setPtyTitle] = useState("");
+  const [cmdHistory, setCmdHistory] = useState<string[]>([]);
+  const [favorites, setFavorites] = useState<string[]>([]);
 
   const availH = Math.max(8, termHeight - HEADER - FOOTER);
   const listH = Math.floor(availH * 0.55);
@@ -53,6 +56,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
 
   useEffect(() => {
     loadInitial();
+    setFavorites(loadFavorites());
   }, []);
 
   const loadInitial = useCallback(async () => {
@@ -120,6 +124,10 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       return;
     }
     if (!trimmed) return;
+    setCmdHistory((h) => {
+      if (h[h.length - 1] === trimmed) return h;
+      return [...h, trimmed].slice(-100);
+    });
     const lower = trimmed.toLowerCase();
     const parts = lower.split(/\s+/);
     const rawParts = trimmed.split(/\s+/);
@@ -132,6 +140,29 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
 
     if (command === "refresh") {
       loadInitial();
+      return;
+    }
+
+    if (command === "star" && rawParts[1]) {
+      const cmd = trimmed.slice(5).trim();
+      setFavorites(addFavorite(cmd));
+      setStatus(`[ok] Starred: ${cmd}`);
+      return;
+    }
+    if (command === "unstar" && rawParts[1]) {
+      const cmd = trimmed.slice(7).trim();
+      setFavorites(removeFavorite(cmd));
+      setStatus(`[ok] Unstarred: ${cmd}`);
+      return;
+    }
+    if (command === "favorites") {
+      if (favorites.length === 0) {
+        setStatus("[!] No favorites yet — use 'star <command>' to add one");
+      } else {
+        setOverlayContent(favorites.map((f) => `  ★ ${f}`));
+        setOverlay("favorites");
+        setOverlayScroll(0);
+      }
       return;
     }
 
@@ -1089,6 +1120,8 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
         <InputBar
           onSubmit={handleSubmit}
           placeholder={isStreaming ? "type input · Enter to send · esc to cancel" : getPlaceholder(conn.type)}
+          history={cmdHistory}
+          completions={[...items, ...favorites]}
         />
       </Box>
 
@@ -1100,6 +1133,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
           ] : [
             { key: "Up/Dn", label: "select" },
             { key: "Enter", label: "execute" },
+            { key: "Tab", label: "autocomplete" },
             { key: "esc", label: "back" },
           ]}
         />
