@@ -24,13 +24,14 @@ interface ServiceScreenProps {
   onClose: () => void;
   tabCount?: number;
   tabIdx?: number;
+  focused?: boolean;
 }
 
 const BOX_OVERHEAD = 5;
 const HEADER = 2;
 const FOOTER = 4;
 
-export function ServiceScreen({ conn, onBack, onClose }: ServiceScreenProps) {
+export function ServiceScreen({ conn, onBack, onClose, focused = true }: ServiceScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalSize();
   const margin = Math.max(1, Math.floor(termWidth * 0.03));
   const innerWidth = Math.max(30, termWidth - margin * 2 - 4);
@@ -1288,7 +1289,7 @@ export function ServiceScreen({ conn, onBack, onClose }: ServiceScreenProps) {
         return ni;
       });
     }
-  });
+  }, { isActive: focused && !ptyHandle });
 
   const maxScroll = Math.max(0, items.length - maxItems);
   const clampedScroll = Math.min(scrollOffset, maxScroll);
@@ -1417,6 +1418,7 @@ export function ServiceScreen({ conn, onBack, onClose }: ServiceScreenProps) {
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
+          focused={focused}
           onEmptySubmit={() => {
             const item = items[selectedIdx];
             if (item) handleSubmit(item);

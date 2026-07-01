@@ -198,14 +198,24 @@ export function App() {
                 </Box>
               </Box>
             )}
-            <ServiceScreen
-              key={activeConns[activeIdx].id}
-              conn={activeConns[activeIdx]}
-              onBack={() => setScreen("connections")}
-              onClose={handleCloseConn}
-              tabCount={activeConns.length}
-              tabIdx={activeIdx}
-            />
+            {activeConns.map((conn, i) => (
+              <Box
+                key={conn.id}
+                display={i === activeIdx ? "flex" : "none"}
+                width={termWidth}
+                height={activeConns.length > 1 ? contentHeight - 2 : contentHeight}
+                overflow="hidden"
+              >
+                <ServiceScreen
+                  conn={conn}
+                  onBack={() => setScreen("connections")}
+                  onClose={handleCloseConn}
+                  tabCount={activeConns.length}
+                  tabIdx={i}
+                  focused={i === activeIdx}
+                />
+              </Box>
+            ))}
           </>
         )}
       </Box>
