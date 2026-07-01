@@ -100,6 +100,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
           "exec <command>", "sysinfo", "disk", "mem", "procs", "net",
           "ports", "firewall [status|allow|deny|enable|disable]",
           "top", "netstat", "tail <file> [-f]", "edit <file>",
+          "security-audit", "snapshot", "diff <snap1> <snap2>",
           "ls [path]", "cat <file>", "find <pattern> [path]", "du [path]",
           "services", "svc <action> <name>",
           "docker ps", "docker images", "docker stats", "docker logs [-f] <ctr>", "docker <start|stop|restart|rm> <ctr>",
@@ -747,6 +748,100 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
         }
         return;
       }
+      if (command === "security-audit") {
+        try {
+          const lines: string[] = [];
+          const checks: Array<[string, string]> = [
+            ["SSH root login", "grep -E '^PermitRootLogin' /etc/ssh/sshd_config 2>/dev/null || echo 'not found'"],
+            ["SSH password auth", "grep -E '^PasswordAuthentication' /etc/ssh/sshd_config 2>/dev/null || echo 'not found'"],
+            ["Firewall (ufw)", "sudo ufw status 2>/dev/null || echo 'ufw not installed'"],
+            ["fail2ban", "sudo fail2ban-client status 2>/dev/null || echo 'fail2ban not installed'"],
+            ["Pending updates", "apt list --upgradable 2>/dev/null | wc -l || echo '0'"],
+            ["Open ports", "ss -tlnp 2>/dev/null | head -20 || netstat -tlnp 2>/dev/null | head -20"],
+            ["Last logins", "last -5 2>/dev/null || echo 'no data'"],
+            ["Failed SSH logins", "grep 'Failed password' /var/log/auth.log 2>/dev/null | tail -10 || journalctl -u sshd --no-pager -n 10 2>/dev/null || echo 'no data'"],
+          ];
+          for (const [label, cmd] of checks) {
+            const result = await ssh.exec(conn, cmd);
+            lines.push(`  [${label}]`);
+            for (const l of result.stdout.split("\n").slice(0, 10)) {
+              if (l.trim()) lines.push(`    ${l}`);
+            }
+            lines.push("");
+          }
+          setOverlayContent(lines);
+          setOverlay("security audit");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "snapshot") {
+        try {
+          const sections: Array<[string, string]> = [
+            ["disk", "df -h"],
+            ["memory", "free -h"],
+            ["processes", "ps aux --sort=-%cpu | head -30"],
+            ["services", "systemctl list-units --type=service --state=running 2>/dev/null | head -30"],
+            ["ports", "ss -tlnp 2>/dev/null | head -30"],
+            ["uptime", "uptime"],
+            ["kernel", "uname -a"],
+          ];
+          const snap: Record<string, string> = { timestamp: new Date().toISOString(), host: conn.host };
+          for (const [key, cmd] of sections) {
+            const result = await ssh.exec(conn, cmd);
+            snap[key] = result.stdout;
+          }
+          const { writeFileSync } = await import("node:fs");
+          const { join } = await import("node:path");
+          const { homedir } = await import("node:os");
+          const filename = `snapshot_${conn.host}_${Date.now()}.json`;
+          const filepath = join(homedir(), filename);
+          writeFileSync(filepath, JSON.stringify(snap, null, 2), "utf-8");
+          setStatus(`[ok] Snapshot saved to ${filepath}`);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "diff" && rawParts[1] && rawParts[2]) {
+        try {
+          const { readFileSync } = await import("node:fs");
+          const snap1 = JSON.parse(readFileSync(rawParts[1], "utf-8"));
+          const snap2 = JSON.parse(readFileSync(rawParts[2], "utf-8"));
+          const lines: string[] = [];
+          const keys = new Set([...Object.keys(snap1), ...Object.keys(snap2)]);
+          for (const key of keys) {
+            if (key === "timestamp") continue;
+            const v1 = snap1[key] ?? "(missing)";
+            const v2 = snap2[key] ?? "(missing)";
+            if (v1 !== v2) {
+              lines.push(`  [${key}] CHANGED`);
+              const l1 = String(v1).split("\n");
+              const l2 = String(v2).split("\n");
+              const maxLen = Math.max(l1.length, l2.length);
+              for (let i = 0; i < maxLen; i++) {
+                const a = l1[i] ?? "";
+                const b = l2[i] ?? "";
+                if (a !== b) {
+                  if (a) lines.push(`    - ${a}`);
+                  if (b) lines.push(`    + ${b}`);
+                }
+              }
+              lines.push("");
+            } else {
+              lines.push(`  [${key}] unchanged`);
+            }
+          }
+          setOverlayContent(lines.length > 0 ? lines : ["  No differences found"]);
+          setOverlay("snapshot diff");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
       if (command === "users") {
         try {
           const result = await ssh.exec(conn, "who -a 2>/dev/null || w 2>/dev/null");
@@ -1290,7 +1385,7 @@ function getPlaceholder(type: string): string {
     case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · export <db> <t> · explain <db> <sql> · slow-queries · logs · back";
     case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · export <db> <coll> · explain <db> <json> · slow-queries · logs · back";
     case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · logs · refresh · back";
-    case "ssh": return "exec <cmd> · ports · firewall · top · netstat · tail <f> · edit <f> · ls · cat · find · services · docker ps · docker logs · users · cron · pkgs · kill · ping · upload/download · logs · reboot yes · back";
+    case "ssh": return "exec <cmd> · ports · firewall · top · netstat · tail <f> · edit <f> · security-audit · snapshot · diff <s1> <s2> · ls · cat · find · services · docker ps · docker logs · users · cron · pkgs · kill · ping · upload/download · logs · reboot yes · back";
     default: return "info · refresh · back";
   }
 }
