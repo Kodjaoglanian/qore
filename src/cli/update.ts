@@ -24,8 +24,7 @@ function detectAsset(): string {
   switch (arch) {
     case "x64": cpu = "x64"; break;
     case "arm64": cpu = "arm64"; break;
-    case "ia32":
-    case "x32": cpu = "x64"; break;
+    case "ia32": cpu = "x64"; break;
     default: throw new Error(`Unsupported architecture: ${arch}`);
   }
 
