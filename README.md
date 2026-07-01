@@ -415,7 +415,7 @@ Implemented:
 - Connections and service screens
 - Vault password change flow in the UI
 - Encrypted connection import and export (QOREX1 bundle format)
-- Multi-platform builds (Linux x64/arm64, macOS arm64/x64, Windows x64)
+- Multi-platform builds (Linux x64/arm64, macOS arm64, Windows x64)
 - Self-updating via `qore update`
 - Service log aggregation (SSH/Redis/Postgres/MySQL/Mongo/HTTP)
 - SSH toolkit: file operations, service control, Docker management, SFTP transfer, process/network utilities
