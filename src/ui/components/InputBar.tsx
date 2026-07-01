@@ -1,29 +1,29 @@
-import React, { useState, useCallback, useRef, type MutableRefObject } from "react";
+import React, { useState, useRef } from "react";
 import { Box, Text, useInput } from "ink";
 import { colors } from "../theme.js";
 
 interface InputBarProps {
   onSubmit: (value: string) => void;
   onEmptySubmit?: () => void;
+  onNavigate?: (direction: "up" | "down") => void;
   placeholder?: string;
   focused?: boolean;
   prompt?: string;
   masked?: boolean;
   history?: string[];
   completions?: string[];
-  inputHandledRef?: MutableRefObject<boolean>;
 }
 
 export function InputBar({
   onSubmit,
   onEmptySubmit,
+  onNavigate,
   placeholder = "Type a command...",
   focused = true,
   prompt = ">",
   masked = false,
   history = [],
   completions = [],
-  inputHandledRef,
 }: InputBarProps) {
   const [value, setValue] = useState("");
   const histIdx = useRef(history.length);
@@ -35,10 +35,8 @@ export function InputBar({
       if (key.return) {
         if (value.trim()) {
           onSubmit(value);
-          if (inputHandledRef) inputHandledRef.current = true;
         } else if (onEmptySubmit) {
           onEmptySubmit();
-          if (inputHandledRef) inputHandledRef.current = true;
         }
         setValue("");
         histIdx.current = history.length;
@@ -52,22 +50,27 @@ export function InputBar({
           if (matches.length > 0) {
             tabIdx.current = (tabIdx.current + 1) % matches.length;
             setValue(matches[tabIdx.current % matches.length]);
-            if (inputHandledRef) inputHandledRef.current = true;
             return;
           }
         }
       }
-      if (key.upArrow && history.length > 0) {
-        if (histIdx.current === history.length) draft.current = value;
-        histIdx.current = Math.max(0, histIdx.current - 1);
-        setValue(history[histIdx.current] ?? "");
-        if (inputHandledRef) inputHandledRef.current = true;
+      if (key.upArrow) {
+        if (value.length > 0 && history.length > 0) {
+          if (histIdx.current === history.length) draft.current = value;
+          histIdx.current = Math.max(0, histIdx.current - 1);
+          setValue(history[histIdx.current] ?? "");
+        } else if (onNavigate) {
+          onNavigate("up");
+        }
         return;
       }
-      if (key.downArrow && history.length > 0) {
-        histIdx.current = Math.min(history.length, histIdx.current + 1);
-        setValue(histIdx.current === history.length ? draft.current : (history[histIdx.current] ?? ""));
-        if (inputHandledRef) inputHandledRef.current = true;
+      if (key.downArrow) {
+        if (value.length > 0 && history.length > 0) {
+          histIdx.current = Math.min(history.length, histIdx.current + 1);
+          setValue(histIdx.current === history.length ? draft.current : (history[histIdx.current] ?? ""));
+        } else if (onNavigate) {
+          onNavigate("down");
+        }
         return;
       }
       if (key.backspace || key.delete) {

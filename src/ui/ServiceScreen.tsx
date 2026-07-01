@@ -43,7 +43,6 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
   const [isStreaming, setIsStreaming] = useState(false);
   const streamSendRef = useRef<((input: string) => void) | null>(null);
   const streamCancelRef = useRef<(() => void) | null>(null);
-  const inputHandledRef = useRef(false);
   const [ptyHandle, setPtyHandle] = useState<PtyHandle | null>(null);
   const [ptyTitle, setPtyTitle] = useState("");
   const [cmdHistory, setCmdHistory] = useState<string[]>([]);
@@ -1240,10 +1239,6 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
 
   useInput((input, key) => {
     if (ptyHandle) return;
-    if (inputHandledRef.current) {
-      inputHandledRef.current = false;
-      return;
-    }
     if (overlay) {
       if (key.escape) {
         if (streamCancelRef.current) {
@@ -1265,20 +1260,6 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
     if (key.escape) {
       onBack();
       return;
-    }
-    if (key.upArrow) {
-      setSelectedIdx((i) => {
-        const ni = Math.max(0, i - 1);
-        if (ni < scrollOffset) setScrollOffset(ni);
-        return ni;
-      });
-    }
-    if (key.downArrow) {
-      setSelectedIdx((i) => {
-        const ni = Math.min(items.length - 1, i + 1);
-        if (ni >= scrollOffset + maxItems) setScrollOffset(ni - maxItems + 1);
-        return ni;
-      });
     }
     if (key.pageUp) {
       setSelectedIdx((i) => {
@@ -1427,10 +1408,24 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
             const item = items[selectedIdx];
             if (item) handleSubmit(item);
           }}
+          onNavigate={(dir) => {
+            if (dir === "up") {
+              setSelectedIdx((i) => {
+                const ni = Math.max(0, i - 1);
+                if (ni < scrollOffset) setScrollOffset(ni);
+                return ni;
+              });
+            } else {
+              setSelectedIdx((i) => {
+                const ni = Math.min(items.length - 1, i + 1);
+                if (ni >= scrollOffset + maxItems) setScrollOffset(ni - maxItems + 1);
+                return ni;
+              });
+            }
+          }}
           placeholder={isStreaming ? "type input · Enter to send · esc to cancel" : getPlaceholder(conn.type)}
           history={cmdHistory}
           completions={[...items, ...favorites]}
-          inputHandledRef={inputHandledRef}
         />
       </Box>
 
