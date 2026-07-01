@@ -8,6 +8,12 @@ export interface SshResult {
   stderr: string;
 }
 
+export interface ExecStreamHandle {
+  result: Promise<SshResult>;
+  send: (input: string) => void;
+  cancel: () => void;
+}
+
 function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
@@ -169,14 +175,10 @@ export class SshManager implements ConnectionManager {
     command: string,
     onData: (chunk: string) => void,
     timeoutMs?: number,
-  ): Promise<SshResult> {
+  ): Promise<ExecStreamHandle> {
     const client = await this.connectClient(config);
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        client.end();
-        reject(new Error("Command execution timed out"));
-      }, timeoutMs ?? 120000);
 
+    return new Promise<ExecStreamHandle>((resolve, reject) => {
       const hasSudo = /\bsudo\b/.test(command);
       const finalCommand = hasSudo && config.password
         ? command.replace(/\bsudo\b/g, "sudo -S")
@@ -185,48 +187,65 @@ export class SshManager implements ConnectionManager {
       const execOpts: any = hasSudo ? { pty: true } : {};
       client.exec(finalCommand, execOpts, (err: any, stream: any) => {
         if (err) {
-          clearTimeout(timeout);
           client.end();
           reject(err);
           return;
         }
-        let stdout = "";
-        let stderr = "";
-        let firstData = true;
 
-        stream.on("data", (data: Buffer) => {
-          const raw = data.toString();
-          stdout += raw;
-          const cleaned = cleanOutput(raw);
-          if (cleaned) {
-            if (hasSudo && config.password && firstData && /[Pp]assword/.test(cleaned)) {
+        const send = (input: string) => {
+          try { stream.write(input + "\n"); } catch {}
+        };
+
+        const cancel = () => {
+          try { client.end(); } catch {}
+        };
+
+        const result = new Promise<SshResult>((res, rej) => {
+          const timeout = setTimeout(() => {
+            client.end();
+            rej(new Error("Command execution timed out"));
+          }, timeoutMs ?? 120000);
+
+          let stdout = "";
+          let stderr = "";
+          let firstData = true;
+
+          stream.on("data", (data: Buffer) => {
+            const raw = data.toString();
+            stdout += raw;
+            const cleaned = cleanOutput(raw);
+            if (cleaned) {
+              if (hasSudo && config.password && firstData && /[Pp]assword/.test(cleaned)) {
+                firstData = false;
+                return;
+              }
               firstData = false;
-              return;
+              onData(cleaned);
             }
-            firstData = false;
-            onData(cleaned);
-          }
-        });
-        stream.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+          });
+          stream.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
 
-        if (hasSudo && config.password) {
-          stream.write(config.password + "\n");
-        }
-
-        stream.on("close", (code: number) => {
-          clearTimeout(timeout);
-          client.end();
-          stdout = cleanOutput(stdout);
-          stderr = cleanOutput(stderr);
           if (hasSudo && config.password) {
-            const lines = stdout.split("\n");
-            if (lines[0] && /[Pp]assword/.test(lines[0])) {
-              lines.shift();
-            }
-            stdout = lines.join("\n");
+            stream.write(config.password + "\n");
           }
-          resolve({ exitCode: code ?? 0, stdout, stderr });
+
+          stream.on("close", (code: number) => {
+            clearTimeout(timeout);
+            client.end();
+            stdout = cleanOutput(stdout);
+            stderr = cleanOutput(stderr);
+            if (hasSudo && config.password) {
+              const lines = stdout.split("\n");
+              if (lines[0] && /[Pp]assword/.test(lines[0])) {
+                lines.shift();
+              }
+              stdout = lines.join("\n");
+            }
+            res({ exitCode: code ?? 0, stdout, stderr });
+          });
         });
+
+        resolve({ result, send, cancel });
       });
     });
   }

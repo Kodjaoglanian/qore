@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Box, Text, useInput } from "ink";
 import { colors } from "./theme.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
@@ -38,6 +38,9 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
   const [overlay, setOverlay] = useState<string | null>(null);
   const [overlayContent, setOverlayContent] = useState<string[]>([]);
   const [overlayScroll, setOverlayScroll] = useState(0);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const streamSendRef = useRef<((input: string) => void) | null>(null);
+  const streamCancelRef = useRef<(() => void) | null>(null);
 
   const availH = Math.max(8, termHeight - HEADER - FOOTER);
   const listH = Math.floor(availH * 0.55);
@@ -107,6 +110,10 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
 
   const handleSubmit = useCallback(async (cmd: string) => {
     const trimmed = cmd.trim();
+    if (streamSendRef.current) {
+      streamSendRef.current(trimmed);
+      return;
+    }
     if (!trimmed) return;
     const lower = trimmed.toLowerCase();
     const parts = lower.split(/\s+/);
@@ -323,15 +330,16 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
         setOverlayContent(["  [running...]"]);
         setOverlayScroll(0);
         try {
-          const result = await ssh.execStream(conn, cmd, (chunk: string) => {
+          const handle = await ssh.execStream(conn, cmd, (chunk: string) => {
             pushLines(chunk);
           });
-          acc.length = 0;
-          if (result.stdout) {
-            for (const line of result.stdout.split("\n").slice(0, 500)) {
-              acc.push(`  ${line}`);
-            }
-          }
+          streamSendRef.current = handle.send;
+          streamCancelRef.current = handle.cancel;
+          setIsStreaming(true);
+          const result = await handle.result;
+          streamSendRef.current = null;
+          streamCancelRef.current = null;
+          setIsStreaming(false);
           if (result.stderr && result.stderr.trim()) {
             acc.push("  stderr:");
             for (const line of result.stderr.split("\n").slice(0, 20)) {
@@ -344,6 +352,9 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
           setOverlayContent(acc.length > 0 ? [...acc] : ["  (no output)"]);
           setOverlayScroll(Math.max(0, acc.length - overlayH));
         } catch (err) {
+          streamSendRef.current = null;
+          streamCancelRef.current = null;
+          setIsStreaming(false);
           if (acc.length === 0) {
             setOverlayContent([`  [!] ${(err as Error).message}`]);
           } else {
@@ -792,6 +803,12 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
   useInput((input, key) => {
     if (overlay) {
       if (key.escape) {
+        if (streamCancelRef.current) {
+          streamCancelRef.current();
+          streamSendRef.current = null;
+          streamCancelRef.current = null;
+          setIsStreaming(false);
+        }
         setOverlay(null);
         setOverlayContent([]);
       }
@@ -829,7 +846,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       {overlay ? (
         <Box flexDirection="column" height={availH} overflow="hidden">
           <Box marginBottom={1} flexDirection="row" justifyContent="space-between">
-            <Text color={colors.purpleBright} bold>{"  > "}{overlay}</Text>
+            <Text color={colors.purpleBright} bold>{"  > "}{overlay}{isStreaming ? " [input mode — type and Enter to send]" : ""}</Text>
             <ScrollIndicator offset={overlayScroll} total={overlayContent.length} visible={Math.max(1, availH - BOX_OVERHEAD)} />
           </Box>
           <StyledBox title={overlay} focused variant="overlay" padding={1} height={availH - 2} overflow="hidden">
@@ -908,13 +925,16 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
-          placeholder={getPlaceholder(conn.type)}
+          placeholder={isStreaming ? "type input · Enter to send · esc to cancel" : getPlaceholder(conn.type)}
         />
       </Box>
 
       <Box marginTop={1}>
         <ShortcutBar
-          shortcuts={[
+          shortcuts={isStreaming ? [
+            { key: "Enter", label: "send input" },
+            { key: "esc", label: "cancel" },
+          ] : [
             { key: "Up/Dn", label: "select" },
             { key: "Enter", label: "execute" },
             { key: "esc", label: "back" },
