@@ -80,7 +80,17 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       } else if (conn.type === "http") {
         setItems(["GET /", "GET /health", "GET /status", "GET /api", "GET /docs"]);
       } else if (conn.type === "ssh") {
-        setItems(["exec <command>", "sysinfo", "disk", "mem", "procs", "net", "logs", "logs <service>", "logs docker <container>"]);
+        setItems([
+          "exec <command>", "sysinfo", "disk", "mem", "procs", "net",
+          "ls [path]", "cat <file>", "find <pattern> [path]", "du [path]",
+          "services", "svc <action> <name>",
+          "docker ps", "docker images", "docker stats", "docker <start|stop|restart|rm> <ctr>",
+          "users", "cron", "env", "pkgs [search]",
+          "kill <pid> [signal]", "ping <host>",
+          "upload <local> <remote>", "download <remote> <local>",
+          "logs [service]", "logs docker <container>",
+          "reboot yes", "shutdown yes",
+        ]);
       } else {
         const db = manager as DatabaseManager;
         try {
@@ -100,6 +110,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
     if (!trimmed) return;
     const lower = trimmed.toLowerCase();
     const parts = lower.split(/\s+/);
+    const rawParts = trimmed.split(/\s+/);
     const command = parts[0];
 
     if (command === "back" || command === "home") {
@@ -378,6 +389,229 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
           setOverlayContent(lines);
           setOverlay("network");
           setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "ls") {
+        const path = trimmed.slice(2).trim() || ".";
+        try {
+          const result = await ssh.exec(conn, `ls -la ${path} 2>&1`);
+          setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+          setOverlay(`ls ${path}`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "cat" && rawParts[1]) {
+        try {
+          const result = await ssh.exec(conn, `cat ${rawParts[1]} 2>&1 | head -500`);
+          setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+          setOverlay(`cat ${rawParts[1]}`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "find" && rawParts[1]) {
+        const path = rawParts[2] || ".";
+        try {
+          const result = await ssh.exec(conn, `find ${path} -iname '*${rawParts[1]}*' 2>/dev/null | head -200`);
+          setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+          setOverlay(`find ${rawParts[1]}`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "du") {
+        const path = trimmed.slice(2).trim() || ".";
+        try {
+          const result = await ssh.exec(conn, `du -sh ${path}/* 2>/dev/null | sort -rh | head -30`);
+          setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+          setOverlay(`du ${path}`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "services") {
+        try {
+          const result = await ssh.exec(conn, "systemctl list-units --type=service --state=running --no-pager 2>/dev/null | head -50 || service --status-all 2>/dev/null | head -50");
+          setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+          setOverlay("services");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "svc" && parts[1] && rawParts[2]) {
+        const action = parts[1];
+        const name = rawParts[2];
+        const validActions = ["start", "stop", "restart", "status", "enable", "disable"];
+        if (!validActions.includes(action)) {
+          setStatus(`[!] Usage: svc <start|stop|restart|status|enable|disable> <service>`);
+          return;
+        }
+        try {
+          const cmd = action === "status" ? `systemctl status ${name} --no-pager 2>&1` : `sudo systemctl ${action} ${name} 2>&1`;
+          const result = await ssh.exec(conn, cmd);
+          const lines = result.stdout.split("\n").map((l) => `  ${l}`);
+          setOverlayContent(lines.length > 0 ? lines : ["  (no output)"]);
+          setOverlay(`svc ${action} ${name}`);
+          setOverlayScroll(0);
+          if (action !== "status") setStatus(`[ok] ${action} ${name}`);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "docker" && parts[1]) {
+        const action = parts[1];
+        try {
+          if (action === "ps") {
+            const result = await ssh.exec(conn, "docker ps -a --format 'table {{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}' 2>&1");
+            setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+            setOverlay("docker ps");
+          } else if (action === "images") {
+            const result = await ssh.exec(conn, "docker images --format 'table {{.Repository}}\\t{{.Tag}}\\t{{.Size}}' 2>&1");
+            setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+            setOverlay("docker images");
+          } else if (["start", "stop", "restart", "rm"].includes(action) && rawParts[2]) {
+            const result = await ssh.exec(conn, `sudo docker ${action} ${rawParts[2]} 2>&1`);
+            setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+            setOverlay(`docker ${action} ${rawParts[2]}`);
+            setStatus(`[ok] docker ${action} ${rawParts[2]}`);
+          } else if (action === "stats") {
+            const result = await ssh.exec(conn, "docker stats --no-stream 2>&1");
+            setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+            setOverlay("docker stats");
+          } else {
+            setStatus("[!] Usage: docker <ps|images|stats|start|stop|restart|rm> [container]");
+            return;
+          }
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "users") {
+        try {
+          const result = await ssh.exec(conn, "who -a 2>/dev/null || w 2>/dev/null");
+          setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+          setOverlay("logged in users");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "cron") {
+        try {
+          const result = await ssh.exec(conn, "crontab -l 2>&1");
+          setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+          setOverlay("crontab");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "env") {
+        try {
+          const result = await ssh.exec(conn, "env 2>&1 | sort");
+          setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+          setOverlay("environment");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "pkgs") {
+        const search = trimmed.slice(4).trim();
+        const base = "(dpkg -l 2>/dev/null || rpm -qa 2>/dev/null || pacman -Q 2>/dev/null)";
+        const cmd = search ? `${base} | grep -i ${search} | head -100` : `${base} | head -200`;
+        try {
+          const result = await ssh.exec(conn, cmd);
+          setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+          setOverlay(search ? `pkgs: ${search}` : "packages");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "kill" && parts[1]) {
+        const signal = parts[2] ? `-${parts[2]}` : "";
+        try {
+          const result = await ssh.exec(conn, `kill ${signal} ${parts[1]} 2>&1 && echo "[ok] Killed ${parts[1]}"`);
+          setStatus(result.stdout.trim() || `[ok] Sent kill to ${parts[1]}`);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "ping" && rawParts[1]) {
+        try {
+          const result = await ssh.exec(conn, `ping -c 4 ${rawParts[1]} 2>&1`);
+          setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+          setOverlay(`ping ${rawParts[1]}`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "upload" && rawParts[1] && rawParts[2]) {
+        try {
+          setStatus("Uploading...");
+          await ssh.uploadFile(conn, rawParts[1], rawParts[2]);
+          setStatus(`[ok] Uploaded ${rawParts[1]} -> ${rawParts[2]}`);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "download" && rawParts[1] && rawParts[2]) {
+        try {
+          setStatus("Downloading...");
+          await ssh.downloadFile(conn, rawParts[1], rawParts[2]);
+          setStatus(`[ok] Downloaded ${rawParts[1]} -> ${rawParts[2]}`);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "reboot") {
+        if (parts[1] !== "yes") {
+          setStatus("[!] Type 'reboot yes' to confirm — this restarts the remote machine");
+          return;
+        }
+        try {
+          await ssh.exec(conn, "sudo reboot");
+          setStatus("[ok] Reboot signal sent");
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "shutdown") {
+        if (parts[1] !== "yes") {
+          setStatus("[!] Type 'shutdown yes' to confirm — this powers off the remote machine");
+          return;
+        }
+        try {
+          await ssh.exec(conn, "sudo shutdown -h now");
+          setStatus("[ok] Shutdown signal sent");
         } catch (err) {
           setStatus(`[!] ${(err as Error).message}`);
         }
@@ -680,7 +914,7 @@ function getPlaceholder(type: string): string {
     case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · logs · back";
     case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · logs · back";
     case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · logs · refresh · back";
-    case "ssh": return "exec <cmd> · sysinfo · disk · mem · procs · net · logs [service] · logs docker <ctr> · info · refresh · back";
+    case "ssh": return "exec <cmd> · ls · cat <f> · find <p> · services · svc <act> <n> · docker ps · users · cron · pkgs · kill <pid> · ping <h> · upload/download · logs · reboot yes · back";
     default: return "info · refresh · back";
   }
 }

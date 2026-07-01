@@ -63,7 +63,7 @@ export class SshManager implements ConnectionManager {
     }
   }
 
-  async exec(config: ConnectionConfig, command: string): Promise<SshResult> {
+  private async connectClient(config: ConnectionConfig): Promise<any> {
     const { Client } = await import("ssh2");
     return new Promise((resolve, reject) => {
       const client = new Client();
@@ -73,43 +73,8 @@ export class SshManager implements ConnectionManager {
       }, 15000);
 
       client.on("ready", () => {
-        const hasSudo = /\bsudo\b/.test(command);
-        const finalCommand = hasSudo && config.password
-          ? command.replace(/\bsudo\b/g, "sudo -S")
-          : command;
-
-        const execOpts: any = hasSudo ? { pty: true } : {};
-        client.exec(finalCommand, execOpts, (err: any, stream: any) => {
-          if (err) {
-            clearTimeout(timeout);
-            client.end();
-            reject(err);
-            return;
-          }
-          let stdout = "";
-          let stderr = "";
-          stream.on("data", (data: Buffer) => { stdout += data.toString(); });
-          stream.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
-
-          if (hasSudo && config.password) {
-            stream.write(config.password + "\n");
-          }
-
-          stream.on("close", (code: number) => {
-            clearTimeout(timeout);
-            client.end();
-            stdout = cleanOutput(stdout);
-            stderr = cleanOutput(stderr);
-            if (hasSudo && config.password) {
-              const lines = stdout.split("\n");
-              if (lines[0] && /[Pp]assword/.test(lines[0])) {
-                lines.shift();
-              }
-              stdout = lines.join("\n");
-            }
-            resolve({ exitCode: code ?? 0, stdout, stderr });
-          });
-        });
+        clearTimeout(timeout);
+        resolve(client);
       });
 
       client.on("error", (err: Error) => {
@@ -148,6 +113,82 @@ export class SshManager implements ConnectionManager {
       }
 
       client.connect(authConfig);
+    });
+  }
+
+  async exec(config: ConnectionConfig, command: string): Promise<SshResult> {
+    const client = await this.connectClient(config);
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        client.end();
+        reject(new Error("Command execution timed out"));
+      }, 20000);
+
+      const hasSudo = /\bsudo\b/.test(command);
+      const finalCommand = hasSudo && config.password
+        ? command.replace(/\bsudo\b/g, "sudo -S")
+        : command;
+
+      const execOpts: any = hasSudo ? { pty: true } : {};
+      client.exec(finalCommand, execOpts, (err: any, stream: any) => {
+        if (err) {
+          clearTimeout(timeout);
+          client.end();
+          reject(err);
+          return;
+        }
+        let stdout = "";
+        let stderr = "";
+        stream.on("data", (data: Buffer) => { stdout += data.toString(); });
+        stream.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+
+        if (hasSudo && config.password) {
+          stream.write(config.password + "\n");
+        }
+
+        stream.on("close", (code: number) => {
+          clearTimeout(timeout);
+          client.end();
+          stdout = cleanOutput(stdout);
+          stderr = cleanOutput(stderr);
+          if (hasSudo && config.password) {
+            const lines = stdout.split("\n");
+            if (lines[0] && /[Pp]assword/.test(lines[0])) {
+              lines.shift();
+            }
+            stdout = lines.join("\n");
+          }
+          resolve({ exitCode: code ?? 0, stdout, stderr });
+        });
+      });
+    });
+  }
+
+  async uploadFile(config: ConnectionConfig, localPath: string, remotePath: string): Promise<void> {
+    const client = await this.connectClient(config);
+    return new Promise((resolve, reject) => {
+      client.sftp((err: any, sftp: any) => {
+        if (err) { client.end(); reject(err); return; }
+        sftp.fastPut(localPath, remotePath, (err2: any) => {
+          client.end();
+          if (err2) reject(err2);
+          else resolve();
+        });
+      });
+    });
+  }
+
+  async downloadFile(config: ConnectionConfig, remotePath: string, localPath: string): Promise<void> {
+    const client = await this.connectClient(config);
+    return new Promise((resolve, reject) => {
+      client.sftp((err: any, sftp: any) => {
+        if (err) { client.end(); reject(err); return; }
+        sftp.fastGet(remotePath, localPath, (err2: any) => {
+          client.end();
+          if (err2) reject(err2);
+          else resolve();
+        });
+      });
     });
   }
 
