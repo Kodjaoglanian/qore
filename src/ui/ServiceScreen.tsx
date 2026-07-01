@@ -107,7 +107,14 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
         const db = manager as DatabaseManager;
         try {
           const dbs = await db.listDatabases(conn);
-          setItems(dbs);
+          setItems([
+            ...dbs,
+            "tables <db>", "desc <db> <table>", "count <db> <table>",
+            "sample <db> <table>", "size <db>", "indexes <db> <table>",
+            "views <db>", "funcs <db>", "conns", "queries",
+            "query <db> <sql>", "export <db> <table>", "explain <db> <sql>",
+            "slow-queries", "logs", "back",
+          ]);
         } catch {
           setItems([]);
         }
@@ -928,6 +935,65 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
         }
         return;
       }
+      if (command === "export" && parts[1] && rawParts[2]) {
+        try {
+          const dbName = parts[1];
+          const table = rawParts[2];
+          if (!db.exportQuery) {
+            setStatus("[!] Export not supported for this database type");
+            return;
+          }
+          const csv = await db.exportQuery(conn, dbName, table);
+          if (!csv) {
+            setStatus("[!] No data to export");
+            return;
+          }
+          const { writeFileSync } = await import("node:fs");
+          const { join } = await import("node:path");
+          const { homedir } = await import("node:os");
+          const filename = `${dbName}_${table}_${Date.now()}.csv`;
+          const filepath = join(homedir(), filename);
+          writeFileSync(filepath, csv, "utf-8");
+          setStatus(`[ok] Exported ${csv.split("\n").length - 1} rows to ${filepath}`);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "explain" && parts[1]) {
+        try {
+          const dbName = parts[1];
+          const sqlStr = trimmed.slice(trimmed.indexOf(parts[1]) + parts[1].length).trim();
+          if (!db.explainQuery) {
+            setStatus("[!] EXPLAIN not supported for this database type");
+            return;
+          }
+          const result = await db.explainQuery(conn, dbName, sqlStr);
+          const lines = formatQueryResult(result);
+          setOverlayContent(lines);
+          setOverlay("explain");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "slow-queries") {
+        try {
+          if (!db.slowQueries) {
+            setStatus("[!] Slow queries not supported for this database type");
+            return;
+          }
+          const result = await db.slowQueries(conn);
+          const lines = formatQueryResult(result);
+          setOverlayContent(lines);
+          setOverlay("slow queries");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
     }
 
     setStatus(`Unknown command: ${command}`);
@@ -1147,8 +1213,8 @@ function getPlaceholder(type: string): string {
     case "redis": return "get <key> · set <key> <val> · del <key> · keys <pattern> · flushdb · info · logs · refresh · back";
     case "s3": return "ls <bucket> · mkbucket <name> · rmbucket <name> · info · refresh · back";
     case "postgres":
-    case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · logs · back";
-    case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · logs · back";
+    case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · export <db> <t> · explain <db> <sql> · slow-queries · logs · back";
+    case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · export <db> <coll> · explain <db> <json> · slow-queries · logs · back";
     case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · logs · refresh · back";
     case "ssh": return "exec <cmd> · ports · firewall · top · netstat · tail <f> · edit <f> · ls · cat · find · services · docker ps · docker logs · users · cron · pkgs · kill · ping · upload/download · logs · reboot yes · back";
     default: return "info · refresh · back";

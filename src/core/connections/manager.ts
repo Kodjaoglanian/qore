@@ -26,6 +26,9 @@ export interface DatabaseManager extends ConnectionManager {
   listFunctions(config: ConnectionConfig, database: string): Promise<QueryResult>;
   activeConnections(config: ConnectionConfig): Promise<QueryResult>;
   runningQueries(config: ConnectionConfig): Promise<QueryResult>;
+  exportQuery?(config: ConnectionConfig, database: string, table: string): Promise<string>;
+  explainQuery?(config: ConnectionConfig, database: string, sql: string): Promise<QueryResult>;
+  slowQueries?(config: ConnectionConfig): Promise<QueryResult>;
 }
 
 export interface StorageManager extends ConnectionManager {

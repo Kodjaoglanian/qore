@@ -220,6 +220,67 @@ export class MongoManager implements DatabaseManager {
     }
   }
 
+  async exportQuery(config: ConnectionConfig, database: string, table: string): Promise<string> {
+    const result = await this.tableSample(config, database, table, 10000);
+    if (result.rows.length === 0) return "";
+    const cols = result.columns;
+    const lines: string[] = [cols.join(",")];
+    for (const row of result.rows) {
+      lines.push(cols.map((c) => {
+        const v = row[c];
+        if (v === null || v === undefined) return "";
+        const s = typeof v === "object" ? JSON.stringify(v) : String(v);
+        if (s.includes(",") || s.includes('"') || s.includes("\n")) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+      }).join(","));
+    }
+    return lines.join("\n");
+  }
+
+  async explainQuery(config: ConnectionConfig, database: string, sql: string): Promise<QueryResult> {
+    const client = await this.connect(config);
+    try {
+      const db = client.db(database);
+      let parsed: any;
+      try { parsed = JSON.parse(sql); } catch { return { columns: [], rows: [] }; }
+      const collection = parsed.collection ?? "test";
+      const filter = parsed.filter ?? {};
+      const explainResult = await db.collection(collection).find(filter).explain();
+      return {
+        columns: ["queryPlanner", "executionStats"],
+        rows: [{
+          queryPlanner: JSON.stringify(explainResult.queryPlanner ?? {}, null, 2),
+          executionStats: JSON.stringify(explainResult.executionStats ?? {}, null, 2),
+        }],
+      };
+    } finally {
+      await client.close();
+    }
+  }
+
+  async slowQueries(config: ConnectionConfig): Promise<QueryResult> {
+    const client = await this.connect(config);
+    try {
+      const db = client.db(config.database ?? "admin");
+      await db.command({ profile: 2 });
+      const profile = await db.collection("system.profile")
+        .find({ millis: { $gt: 0 } })
+        .sort({ millis: -1 })
+        .limit(20)
+        .toArray();
+      const rows = profile.map((p: any) => ({
+        op: String(p.op ?? ""),
+        ns: String(p.ns ?? ""),
+        millis: String(p.millis ?? 0),
+        query: JSON.stringify(p.command ?? p.query ?? {}),
+        ts: String(p.ts ?? ""),
+      }));
+      return { columns: ["op", "ns", "millis", "query", "ts"], rows };
+    } finally {
+      await client.close();
+    }
+  }
+
   async getLogs(config: ConnectionConfig, opts?: { tail?: number }): Promise<string[]> {
     const tail = opts?.tail ?? 100;
     const lines: string[] = [];
