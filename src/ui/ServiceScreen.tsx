@@ -792,13 +792,44 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       onBack();
       return;
     }
-    if (key.upArrow) setSelectedIdx((i) => Math.max(0, i - 1));
-    if (key.downArrow) setSelectedIdx((i) => Math.min(items.length - 1, i + 1));
-    if (key.pageUp) setSelectedIdx((i) => Math.max(0, i - maxItems));
-    if (key.pageDown) setSelectedIdx((i) => Math.min(items.length - 1, i + maxItems));
+    if (key.return) {
+      const item = items[selectedIdx];
+      if (item) handleSubmit(item);
+      return;
+    }
+    if (key.upArrow) {
+      setSelectedIdx((i) => {
+        const ni = Math.max(0, i - 1);
+        if (ni < scrollOffset) setScrollOffset(ni);
+        return ni;
+      });
+    }
+    if (key.downArrow) {
+      setSelectedIdx((i) => {
+        const ni = Math.min(items.length - 1, i + 1);
+        if (ni >= scrollOffset + maxItems) setScrollOffset(ni - maxItems + 1);
+        return ni;
+      });
+    }
+    if (key.pageUp) {
+      setSelectedIdx((i) => {
+        const ni = Math.max(0, i - maxItems);
+        setScrollOffset(Math.max(0, ni - maxItems + 1));
+        return ni;
+      });
+    }
+    if (key.pageDown) {
+      setSelectedIdx((i) => {
+        const ni = Math.min(items.length - 1, i + maxItems);
+        if (ni >= maxItems) setScrollOffset(ni - maxItems + 1);
+        return ni;
+      });
+    }
   });
 
-  const visibleItems = items.slice(scrollOffset, scrollOffset + maxItems);
+  const maxScroll = Math.max(0, items.length - maxItems);
+  const clampedScroll = Math.min(scrollOffset, maxScroll);
+  const visibleItems = items.slice(clampedScroll, clampedScroll + maxItems);
   const itemLabel = conn.type === "s3" ? "Buckets" : conn.type === "redis" ? "Keys" : conn.type === "http" ? "Endpoints" : conn.type === "ssh" ? "Commands" : "Databases";
 
   const overlayLines = overlayContent.slice(overlayScroll, overlayScroll + Math.max(1, availH - BOX_OVERHEAD));
@@ -863,7 +894,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
                 <Text color={colors.textMuted}>{"  No items found."}</Text>
               ) : (
                 visibleItems.map((item, i) => {
-                  const realIdx = scrollOffset + i;
+                  const realIdx = clampedScroll + i;
                   return (
                     <Box key={realIdx} flexDirection="row">
                       <Text color={realIdx === selectedIdx ? colors.purple : colors.textDim}>
@@ -878,7 +909,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
               )}
               {items.length > maxItems && (
                 <Box marginTop={0}>
-                  <ScrollIndicator offset={scrollOffset} total={items.length} visible={maxItems} />
+                  <ScrollIndicator offset={clampedScroll} total={items.length} visible={maxItems} />
                 </Box>
               )}
             </Box>
