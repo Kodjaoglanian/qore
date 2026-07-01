@@ -44,6 +44,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
   const streamCancelRef = useRef<(() => void) | null>(null);
   const [ptyHandle, setPtyHandle] = useState<PtyHandle | null>(null);
   const [ptyTitle, setPtyTitle] = useState("");
+  const [cmdHistory, setCmdHistory] = useState<string[]>([]);
 
   const availH = Math.max(8, termHeight - HEADER - FOOTER);
   const listH = Math.floor(availH * 0.55);
@@ -120,6 +121,10 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
       return;
     }
     if (!trimmed) return;
+    setCmdHistory((h) => {
+      if (h[h.length - 1] === trimmed) return h;
+      return [...h, trimmed].slice(-100);
+    });
     const lower = trimmed.toLowerCase();
     const parts = lower.split(/\s+/);
     const rawParts = trimmed.split(/\s+/);
@@ -1089,6 +1094,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
         <InputBar
           onSubmit={handleSubmit}
           placeholder={isStreaming ? "type input · Enter to send · esc to cancel" : getPlaceholder(conn.type)}
+          history={cmdHistory}
         />
       </Box>
 
