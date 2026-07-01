@@ -101,6 +101,7 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
           "ports", "firewall [status|allow|deny|enable|disable]",
           "top", "netstat", "tail <file> [-f]", "edit <file>",
           "security-audit", "snapshot", "diff <snap1> <snap2>",
+          "deploy <script>", "git-status", "compose <up|down|ps|logs|restart|pull>",
           "ls [path]", "cat <file>", "find <pattern> [path]", "du [path]",
           "services", "svc <action> <name>",
           "docker ps", "docker images", "docker stats", "docker logs [-f] <ctr>", "docker <start|stop|restart|rm> <ctr>",
@@ -842,6 +843,74 @@ export function ServiceScreen({ conn, onBack }: ServiceScreenProps) {
         }
         return;
       }
+      if (command === "deploy" && rawParts[1]) {
+        const script = rawParts[1];
+        setPtyTitle(`deploy: ${script}`);
+        setOverlay(null);
+        setOverlayContent([]);
+        try {
+          const termW = Math.min(process.stdout.columns || 80, 200);
+          const termH = Math.max(8, (process.stdout.rows || 24) - 6);
+          const pty = await ssh.execPty(conn, `bash ${script} 2>&1`, termW, termH, () => {});
+          setPtyHandle(pty);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "git-status") {
+        try {
+          const result = await ssh.exec(conn,
+            "find / -maxdepth 4 -name '.git' -type d 2>/dev/null | head -20 | while read g; do d=$(dirname \"$g\"); echo \"=== $d ===\"; git -C \"$d\" status --short 2>/dev/null; git -C \"$d\" log --oneline -3 2>/dev/null; echo; done");
+          const lines = result.stdout.split("\n").map((l) => `  ${l}`);
+          setOverlayContent(lines.length > 0 ? lines : ["  No git repositories found"]);
+          setOverlay("git status");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+      if (command === "compose" && parts[1]) {
+        const action = parts[1];
+        const validActions = ["up", "down", "ps", "logs", "restart", "pull"];
+        if (!validActions.includes(action)) {
+          setStatus("[!] Usage: compose <up|down|ps|logs|restart|pull> [service]");
+          return;
+        }
+        const follow = action === "logs" && (parts.includes("-f") || parts.includes("--follow"));
+        const extra = rawParts.slice(2).join(" ");
+        if (follow) {
+          setPtyTitle(`docker compose logs -f`);
+          setOverlay(null);
+          setOverlayContent([]);
+          try {
+            const termW = Math.min(process.stdout.columns || 80, 200);
+            const termH = Math.max(8, (process.stdout.rows || 24) - 6);
+            const pty = await ssh.execPty(conn, `docker compose logs -f ${extra}`, termW, termH, () => {});
+            setPtyHandle(pty);
+          } catch (err) {
+            setStatus(`[!] ${(err as Error).message}`);
+          }
+        } else {
+          try {
+            const cmd = action === "up" ? `docker compose up -d ${extra}` :
+                        action === "down" ? `docker compose down ${extra}` :
+                        action === "ps" ? `docker compose ps ${extra}` :
+                        action === "logs" ? `docker compose logs --tail 100 ${extra}` :
+                        action === "restart" ? `docker compose restart ${extra}` :
+                        `docker compose pull ${extra}`;
+            const result = await ssh.exec(conn, `${cmd} 2>&1`);
+            setOverlayContent(result.stdout.split("\n").map((l) => `  ${l}`));
+            setOverlay(`docker compose ${action}`);
+            setOverlayScroll(0);
+            setStatus(`[ok] docker compose ${action}`);
+          } catch (err) {
+            setStatus(`[!] ${(err as Error).message}`);
+          }
+        }
+        return;
+      }
       if (command === "users") {
         try {
           const result = await ssh.exec(conn, "who -a 2>/dev/null || w 2>/dev/null");
@@ -1385,7 +1454,7 @@ function getPlaceholder(type: string): string {
     case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · export <db> <t> · explain <db> <sql> · slow-queries · logs · back";
     case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · export <db> <coll> · explain <db> <json> · slow-queries · logs · back";
     case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · logs · refresh · back";
-    case "ssh": return "exec <cmd> · ports · firewall · top · netstat · tail <f> · edit <f> · security-audit · snapshot · diff <s1> <s2> · ls · cat · find · services · docker ps · docker logs · users · cron · pkgs · kill · ping · upload/download · logs · reboot yes · back";
+    case "ssh": return "exec <cmd> · ports · firewall · top · netstat · tail <f> · edit <f> · security-audit · snapshot · diff <s1> <s2> · deploy <script> · git-status · compose <up|down|ps|logs> · ls · cat · find · services · docker ps · docker logs · users · cron · pkgs · kill · ping · upload/download · logs · reboot yes · back";
     default: return "info · refresh · back";
   }
 }
