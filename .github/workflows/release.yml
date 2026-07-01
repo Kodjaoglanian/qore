@@ -9,91 +9,25 @@ permissions:
   contents: write
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Type check
-        run: node ./node_modules/typescript/bin/tsc --noEmit
-
-      - name: Run tests
-        run: bun test
-
+  # Reuse the build workflow — single source of truth for builds
   build:
-    needs: test
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: bun-linux-x64
-            asset: qore-linux-x64
-          - os: ubuntu-latest
-            target: bun-linux-arm64
-            asset: qore-linux-arm64
-          - os: macos-latest
-            target: bun-darwin-arm64
-            asset: qore-darwin-arm64
-          - os: windows-latest
-            target: bun-windows-x64
-            asset: qore-windows-x64.exe
-
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Patch ink devtools
-        run: bash scripts/prebuild.sh
-        if: runner.os != 'Windows'
-
-      - name: Patch ink devtools (Windows)
-        shell: bash
-        run: bash scripts/prebuild.sh
-        if: runner.os == 'Windows'
-
-      - name: Build binary
-        run: bun build src/index.tsx --compile --target ${{ matrix.target }} --outfile qore
-
-      - name: Rename binary
-        shell: bash
-        run: |
-          mv qore ${{ matrix.asset }}
-          chmod +x ${{ matrix.asset }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.asset }}
-          path: ${{ matrix.asset }}
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ github.ref }}
 
   release:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Make install script executable
-        run: chmod +x scripts/install.sh
+      - name: Make install scripts executable
+        run: chmod +x scripts/install.sh scripts/install.ps1
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -101,8 +35,16 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: List artifacts
-        run: ls -la artifacts/
+      - name: Verify all artifacts present
+        run: |
+          for f in qore-linux-x64 qore-linux-arm64 qore-darwin-arm64 qore-windows-x64.exe; do
+            if [ ! -f "artifacts/$f" ]; then
+              echo "ERROR: Missing artifact $f"
+              exit 1
+            fi
+          done
+          echo "All artifacts present"
+          ls -lh artifacts/
 
       - name: Get version from tag
         id: version

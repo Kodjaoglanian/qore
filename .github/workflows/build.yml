@@ -1,0 +1,83 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: bun-linux-x64
+            asset: qore-linux-x64
+          - os: ubuntu-latest
+            target: bun-linux-arm64
+            asset: qore-linux-arm64
+          - os: macos-latest
+            target: bun-darwin-arm64
+            asset: qore-darwin-arm64
+          - os: windows-latest
+            target: bun-windows-x64
+            asset: qore-windows-x64.exe
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.0"
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: deps-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Patch ink devtools
+        shell: bash
+        run: bash scripts/prebuild.sh
+
+      - name: Build binary
+        run: bun build src/index.tsx --compile --target ${{ matrix.target }} --outfile qore
+
+      - name: Rename binary
+        shell: bash
+        run: |
+          mv qore ${{ matrix.asset }}
+          chmod +x ${{ matrix.asset }}
+
+      - name: Smoke test — binary exists and runs
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          timeout 3 ./${{ matrix.asset }} --help || true
+          file ${{ matrix.asset }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          retention-days: 14

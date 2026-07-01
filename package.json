@@ -9,7 +9,10 @@
     "start": "bun run src/index.tsx",
     "build": "bash scripts/prebuild.sh && bun build src/index.tsx --compile --outfile qore",
     "tsc": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "pretag": "bun run tsc && bun test",
+    "release:patch": "bun run pretag && npm version patch --no-git-tag-version && git add -A && git commit -m \"chore: bump version\" && git tag v$(node -p \"require('./package.json').version\") && git push origin main --tags",
+    "release:minor": "bun run pretag && npm version minor --no-git-tag-version && git add -A && git commit -m \"chore: bump version\" && git tag v$(node -p \"require('./package.json').version\") && git push origin main --tags"
   },
   "keywords": [
     "infrastructure",
