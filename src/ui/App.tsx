@@ -132,7 +132,7 @@ export function App() {
       exit();
     }
     if (screen === "service" && activeConns.length > 1) {
-      if ((key.ctrl && input === "\t") || (key.shift && key.tab)) {
+      if ((key.ctrl && key.tab) || (key.shift && key.tab)) {
         setActiveIdx((i) => (i + 1) % activeConns.length);
       }
       if (key.leftArrow && key.ctrl) {

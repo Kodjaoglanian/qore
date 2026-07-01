@@ -43,7 +43,7 @@ export function InputBar({
         draft.current = "";
         return;
       }
-      if (key.tab && completions.length > 0) {
+      if (key.tab && !key.ctrl && completions.length > 0) {
         const prefix = value.trim().toLowerCase();
         if (prefix) {
           const matches = completions.filter((c) => c.toLowerCase().startsWith(prefix));
