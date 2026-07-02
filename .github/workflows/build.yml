@@ -82,6 +82,7 @@ jobs:
             node -e "
               const fs=require('fs');
               let s=fs.readFileSync('$INK_APP','utf8');
+              s=s.replace(/return this\.props\.stdin\.isTTY;/g,'return true;');
               s=s.replace(/stdin\.ref\(\);/g,'if (typeof stdin.ref === \"function\") stdin.ref();');
               s=s.replace(/stdin\.unref\(\);/g,'if (typeof stdin.unref === \"function\") stdin.unref();');
               fs.writeFileSync('$INK_APP',s);
