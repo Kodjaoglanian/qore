@@ -37,6 +37,8 @@ export function InputBar({
           onSubmit(value);
         } else if (onEmptySubmit) {
           onEmptySubmit();
+        } else {
+          onSubmit("");
         }
         setValue("");
         histIdx.current = history.length;
