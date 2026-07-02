@@ -66,6 +66,15 @@ if [ -f "$SSH_CRYPTO" ]; then
 fi
 if [ -f "$SSH_CONSTANTS" ]; then
   sed -i.bak "s/'chacha20-poly1305@openssh.com'/'aes256-ctr'/g" "$SSH_CONSTANTS"
+  # Force curve25519Supported=false — Bun compiled binaries fail on
+  # crypto.generateKeyPairSync('x25519') with ENOTSUP. This removes
+  # curve25519 KEX methods so ecdh-sha2-nistp256 is negotiated instead.
+  node -e "
+    const fs=require('fs');
+    let c=fs.readFileSync('$SSH_CONSTANTS','utf8');
+    c=c.replace(/const curve25519Supported\s*=\s*[\s\S]*?;/, 'const curve25519Supported = false;');
+    fs.writeFileSync('$SSH_CONSTANTS',c);
+  "
   rm -f "${SSH_CONSTANTS}.bak"
-  echo "Patched ssh2 constants.js (replaced chacha20-poly1305 with aes256-ctr)"
+  echo "Patched ssh2 constants.js (replaced chacha20-poly1305, disabled curve25519 KEX)"
 fi

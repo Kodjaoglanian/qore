@@ -95,7 +95,7 @@ jobs:
           rm -rf "node_modules/cpu-features"
           echo "Removed ssh2 native binding + cpu-features (JS fallback)"
 
-          # Patch ssh2 WASM init to resolve on failure + remove chacha20-poly1305 cipher
+          # Patch ssh2 WASM init to resolve on failure + remove chacha20-poly1305 cipher + disable curve25519 KEX
           node -e "
             const fs=require('fs');
             const cryptoFile='node_modules/ssh2/lib/protocol/crypto.js';
@@ -105,9 +105,10 @@ jobs:
             const constFile='node_modules/ssh2/lib/protocol/constants.js';
             let c=fs.readFileSync(constFile,'utf8');
             c=c.replace(/'chacha20-poly1305@openssh\.com'/g,'aes256-ctr');
+            c=c.replace(/const curve25519Supported\s*=\s*[\s\S]*?;/,'const curve25519Supported = false;');
             fs.writeFileSync(constFile,c);
           "
-          echo "Patched ssh2 WASM init + removed chacha20-poly1305 cipher"
+          echo "Patched ssh2 WASM init + removed chacha20-poly1305 + disabled curve25519 KEX"
 
       - name: Build binary
         run: bun build src/index.tsx --compile --target ${{ matrix.target }} --outfile qore
