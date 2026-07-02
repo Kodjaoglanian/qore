@@ -73,8 +73,20 @@ if [ -f "$SSH_CONSTANTS" ]; then
     const fs=require('fs');
     let c=fs.readFileSync('$SSH_CONSTANTS','utf8');
     c=c.replace(/const curve25519Supported\s*=\s*[\s\S]*?;/, 'const curve25519Supported = false;');
+    c=c.replace(/const eddsaSupported\s*=\s*\(?\(?\(\)\s*=>\s*\{[\s\S]*?\}\)\(\);?/, 'const eddsaSupported = true;');
     fs.writeFileSync('$SSH_CONSTANTS',c);
   "
   rm -f "${SSH_CONSTANTS}.bak"
   echo "Patched ssh2 constants.js (replaced chacha20-poly1305, disabled curve25519 KEX)"
+fi
+
+# 6. Patch ssh2 keyParser.js — force eddsaSupported=true
+#    The eddsaSupported check uses crypto.sign() with ed25519 which may fail
+#    in Bun compiled binaries on some systems, preventing ed25519 key parsing.
+#    The actual sign/verify is done later by Bun's crypto which handles ed25519.
+SSH_KEYPARSER="node_modules/ssh2/lib/protocol/keyParser.js"
+if [ -f "$SSH_KEYPARSER" ]; then
+  sed -i.bak "s/if (!eddsaSupported)/if (false)/g" "$SSH_KEYPARSER"
+  rm -f "${SSH_KEYPARSER}.bak"
+  echo "Patched ssh2 keyParser.js (force eddsaSupported=true for ed25519 keys)"
 fi

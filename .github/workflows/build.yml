@@ -95,7 +95,7 @@ jobs:
           rm -rf "node_modules/cpu-features"
           echo "Removed ssh2 native binding + cpu-features (JS fallback)"
 
-          # Patch ssh2 WASM init to resolve on failure + remove chacha20-poly1305 cipher + disable curve25519 KEX
+          # Patch ssh2 WASM init + remove chacha20-poly1305 cipher + disable curve25519 KEX + force ed25519 support
           node -e "
             const fs=require('fs');
             const cryptoFile='node_modules/ssh2/lib/protocol/crypto.js';
@@ -106,9 +106,14 @@ jobs:
             let c=fs.readFileSync(constFile,'utf8');
             c=c.replace(/'chacha20-poly1305@openssh\.com'/g,'aes256-ctr');
             c=c.replace(/const curve25519Supported\s*=\s*[\s\S]*?;/,'const curve25519Supported = false;');
+            c=c.replace(/const eddsaSupported\s*=\s*\(?\(?\(\)\s*=>\s*\{[\s\S]*?\}\)\(\);?/,'const eddsaSupported = true;');
             fs.writeFileSync(constFile,c);
+            const kpFile='node_modules/ssh2/lib/protocol/keyParser.js';
+            let kp=fs.readFileSync(kpFile,'utf8');
+            kp=kp.replace(/if \(!eddsaSupported\)/g,'if (false)');
+            fs.writeFileSync(kpFile,kp);
           "
-          echo "Patched ssh2 WASM init + removed chacha20-poly1305 + disabled curve25519 KEX"
+          echo "Patched ssh2 WASM init + chacha20-poly1305 + curve25519 KEX + ed25519 key parsing"
 
       - name: Build binary
         run: bun build src/index.tsx --compile --target ${{ matrix.target }} --outfile qore
