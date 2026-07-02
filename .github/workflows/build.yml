@@ -104,7 +104,7 @@ jobs:
             fs.writeFileSync(cryptoFile,s);
             const constFile='node_modules/ssh2/lib/protocol/constants.js';
             let c=fs.readFileSync(constFile,'utf8');
-            c=c.replace(/chacha20-poly1305@openssh\.com/g,\"'aes256-ctr'\");
+            c=c.replace(/'chacha20-poly1305@openssh\.com'/g,'aes256-ctr');
             fs.writeFileSync(constFile,c);
           "
           echo "Patched ssh2 WASM init + removed chacha20-poly1305 cipher"
