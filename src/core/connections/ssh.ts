@@ -133,6 +133,10 @@ export class SshManager implements ConnectionManager {
         authConfig.readyTimeout = 10000;
       }
 
+      authConfig.debug = (msg: string) => {
+        console.error("SSH DBG:", msg.substring(0, 300));
+      };
+
       client.connect(authConfig);
     });
   }

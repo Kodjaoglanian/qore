@@ -454,7 +454,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
       setStatus("Refreshed");
       return;
     }
-  }, [view, connections, selectedIdx, vault, onBack, refreshList, handleFormInput, handlePwInput, testConnection, onConnect]);
+  }, [view, connections, selectedIdx, vault, onBack, refreshList, handleFormInput, handlePwInput, handleVaultSubmit, testConnection, onConnect]);
 
   useInput((input, key) => {
     if (key.escape) {
