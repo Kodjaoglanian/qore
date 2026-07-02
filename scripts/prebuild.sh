@@ -50,3 +50,22 @@ if [ -d "node_modules/cpu-features" ]; then
   rm -rf "node_modules/cpu-features"
   echo "Removed cpu-features module (optional, not needed for build)"
 fi
+
+# 5. Patch ssh2 crypto.js — WASM (poly1305) fails in Bun compiled binaries
+#    The init promise loads poly1305.js via WebAssembly.instantiate(), which
+#    fails with ENOTSUP in Bun compiled binaries. This causes SSH connections
+#    to fail with "The operation is not supported".
+#    Fix: make init resolve() instead of reject() on WASM failure, and remove
+#    chacha20-poly1305 from the cipher list (it requires poly1305/WASM).
+SSH_CRYPTO="node_modules/ssh2/lib/protocol/crypto.js"
+SSH_CONSTANTS="node_modules/ssh2/lib/protocol/constants.js"
+if [ -f "$SSH_CRYPTO" ]; then
+  sed -i.bak 's/return reject(ex);/return resolve();/g' "$SSH_CRYPTO"
+  rm -f "${SSH_CRYPTO}.bak"
+  echo "Patched ssh2 crypto.js (WASM init resolves on failure)"
+fi
+if [ -f "$SSH_CONSTANTS" ]; then
+  sed -i.bak "s/'chacha20-poly1305@openssh.com'/'aes256-ctr'/g" "$SSH_CONSTANTS"
+  rm -f "${SSH_CONSTANTS}.bak"
+  echo "Patched ssh2 constants.js (replaced chacha20-poly1305 with aes256-ctr)"
+fi
