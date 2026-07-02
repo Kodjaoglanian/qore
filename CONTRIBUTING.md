@@ -110,6 +110,7 @@ Before requesting a review, verify that:
 - [ ] The change is focused on a single concern.
 - [ ] If modifying `ServiceScreen` layout, use `effectiveHeight` (not raw `termHeight`).
 - [ ] If modifying multi-connection behavior, all tabs must remain mounted (never unmount inactive tabs).
+- [ ] If modifying session handling, use `sessionId` (not `conn.id`) as React key — multiple sessions of the same connection are allowed.
 
 ---
 

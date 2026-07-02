@@ -48,6 +48,7 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 - **Multi-Platform**: Prebuilt binaries for Linux (x64/arm64), macOS (Apple Silicon), and Windows (x64).
 - **Keyboard-First TUI**: Type commands, use arrow keys for selection, and press Escape to navigate back.
 - **Multi-Connection Tabs**: Open multiple service connections simultaneously and switch between them with Ctrl+Tab / Ctrl+Arrow keys. All tabs stay mounted — connections remain active and state is preserved when switching.
+- **Multi-Session**: Open multiple sessions of the same connection (e.g., two SSH sessions to the same server). Use the `new` command inside any service screen to open a duplicate session.
 - **Command History**: Navigate previous commands with Up/Down arrows when the input bar has text.
 - **Tab Autocomplete**: Press Tab to cycle through matching commands.
 - **Favorites**: Star frequently used commands with `star <cmd>` and recall them with `favorites`.
@@ -501,6 +502,7 @@ Implemented:
 - quit/exit command from any screen
 - Multi-connection: all tabs rendered simultaneously, state preserved on switch
 - Multi-connection: Ctrl+Tab / Ctrl+Arrows switching, close command to disconnect
+- Multi-session: multiple sessions of same connection (unique sessionId, `new` command)
 - CI/CD: 3-workflow pipeline with cache, smoke tests, pinned bun, automated releases
 
 Planned:

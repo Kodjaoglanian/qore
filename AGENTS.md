@@ -71,6 +71,7 @@ Protocol-level integrations with real services. No mocks, no vendor lock-in.
 - **Screens**: Welcome -> Discover (Docker/ports/daemons) -> Vault (unlock/create) -> Connections (list/add/test) -> Service (type-specific management: Redis/S3/Postgres/MySQL/Mongo/HTTP/SSH).
 - **Input Model**: InputBar is always focused. Commands are typed + Enter. Arrow keys navigate command list when input is empty, or navigate command history when input has text. Tab cycles autocomplete. No single-key shortcuts that conflict with typing.
 - **Multi-Connection**: Multiple service connections can be open simultaneously as tabs. Switch with Ctrl+Tab / Ctrl+Arrows. All ServiceScreen instances are rendered simultaneously — inactive tabs use `display="none"` and `focused={false}` to preserve state (connection, history, items) without remounting. Only the active tab captures keyboard input via `useInput({ isActive: focused })`.
+- **Multi-Session**: Multiple sessions of the same connection are allowed. Each tab is identified by a unique `sessionId` (not `conn.id`), so connecting to the same server twice opens two independent tabs. Use `new` command inside ServiceScreen to open a duplicate session. The ConnectionsScreen shows `[open xN]` when N sessions of the same connection are active. `handleConnect` in App.tsx always creates a new `ActiveSession` — it never deduplicates.
 - **Favorites**: Starred commands stored in `~/.qore/favorites.json`. Use `star <cmd>` / `unstar <cmd>` / `favorites`.
 - **Close vs Back**: `back` returns to Connections screen without closing the tab (connection stays active). `close` disconnects and removes the tab entirely.
 - **Snapshots**: SSH server state snapshots saved to `~/.qore/snapshots/` as JSON files. Compare with `diff <s1> <s2>`.
@@ -157,6 +158,7 @@ bun run release:minor
 - [x] quit/exit command from any screen (process.exit fallback for active SSH).
 - [x] Multi-connection: all tabs rendered simultaneously, state preserved on switch.
 - [x] Multi-connection: Ctrl+Tab / Ctrl+Arrows switching, `close` command to disconnect.
+- [x] Multi-session: multiple sessions of same connection (unique sessionId per tab, `new` command).
 - [x] CI/CD: 3-workflow pipeline (ci.yml, build.yml, release.yml) with cache, smoke tests, pinned bun.
 - [x] CI/CD: automated release scripts (`release:patch`, `release:minor`).
 
