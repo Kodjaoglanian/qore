@@ -4,3 +4,5 @@ qore
 *.log
 .DS_Store
 .release-guide.md
+qore-test*
+test-*.ts

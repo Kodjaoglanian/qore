@@ -1,6 +1,6 @@
 {
   "name": "qore",
-  "version": "0.5.18",
+  "version": "0.5.19",
   "description": "Ultra-lightweight, single-binary hybrid infrastructure orchestrator with a terminal-native TUI.",
   "type": "module",
   "main": "src/index.tsx",

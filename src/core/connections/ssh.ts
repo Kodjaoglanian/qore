@@ -41,9 +41,13 @@ export class SshManager implements ConnectionManager {
   async testConnection(config: ConnectionConfig): Promise<boolean> {
     try {
       this.lastError = null;
+      console.error("SSH DEBUG — testConnection to", config.host, ":", config.port, "user:", config.username);
       const result = await this.exec(config, "echo ok");
+      console.error("SSH DEBUG — exec result:", JSON.stringify(result));
       return result.exitCode === 0 && result.stdout.trim() === "ok";
     } catch (err) {
+      console.error("SSH DEBUG — testConnection caught:", (err as Error).message);
+      console.error("SSH DEBUG — full error:", JSON.stringify(err, Object.getOwnPropertyNames(err)));
       this.lastError = (err as Error).message;
       return false;
     }
@@ -92,8 +96,10 @@ export class SshManager implements ConnectionManager {
         resolve(client);
       });
 
-      client.on("error", (err: Error) => {
+      client.on("error", (err: Error & { code?: string; level?: string }) => {
         clearTimeout(timeout);
+        console.error("SSH DEBUG — Error:", err.message, "| code:", err.code, "| level:", err.level);
+        if (err.stack) console.error("SSH DEBUG — Stack:", err.stack);
         reject(err);
       });
 
