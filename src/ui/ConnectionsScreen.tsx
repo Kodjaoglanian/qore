@@ -52,7 +52,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
   const [vaultPw, setVaultPw] = useState("");
   const [vaultError, setVaultError] = useState<string | null>(null);
 
-  // Add form state
+  // Add/edit form state
   const [formStep, setFormStep] = useState(0);
   const [formData, setFormData] = useState<Partial<ConnectionConfig>>({
     type: undefined,
@@ -60,6 +60,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
     port: undefined,
     useTls: false,
   });
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const refreshList = useCallback(() => {
     if (vault && vault.isUnlocked()) setConnections(vault.getConnections());
@@ -128,6 +129,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
   const handleFormInput = useCallback((value: string) => {
     if (!vault) return;
     const lower = value.toLowerCase();
+    const isEdit = view === "edit";
 
     if (formStep === 0) {
       const validTypes: ConnectionType[] = ["redis", "postgres", "mysql", "mongo", "s3", "http", "ssh"];
@@ -143,18 +145,19 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
     }
 
     if (formStep === 1) {
-      if (!value) {
+      const name = value || formData.name || "";
+      if (!name) {
         setStatus("Name is required. Enter a connection name:");
         return;
       }
-      setFormData((d) => ({ ...d, name: value }));
+      setFormData((d) => ({ ...d, name }));
       setFormStep(2);
-      setStatus(`[ok] Name: ${value} · Enter host (default: localhost):`);
+      setStatus(`[ok] Name: ${name} · Enter host (default: localhost):`);
       return;
     }
 
     if (formStep === 2) {
-      const host = value || "localhost";
+      const host = value || formData.host || "localhost";
       setFormData((d) => ({ ...d, host }));
       setFormStep(3);
       setStatus(`[ok] Host: ${host} · Enter port (default: ${formData.port}):`);
@@ -231,17 +234,23 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
       const useTls = lower === "yes" || lower === "y" || lower === "true";
       const finalData = { ...formData, useTls };
       try {
-        vault.addConnection(finalData as Omit<ConnectionConfig, "id">);
+        if (isEdit && editingId) {
+          vault.updateConnection(editingId, finalData as Partial<ConnectionConfig>);
+          setStatus(`[ok] Updated: ${finalData.name}`);
+        } else {
+          vault.addConnection(finalData as Omit<ConnectionConfig, "id">);
+          setStatus(`[ok] Added: ${finalData.name}`);
+        }
         refreshList();
         setView("list");
         setFormStep(0);
-        setStatus(`[ok] Added: ${finalData.name}`);
+        setEditingId(null);
       } catch (err) {
         setStatus(`Error: ${(err as Error).message}`);
       }
       return;
     }
-  }, [formStep, formData, vault, refreshList]);
+  }, [formStep, formData, vault, refreshList, view, editingId]);
 
   const handlePwInput = useCallback((value: string) => {
     if (!vault) return;
@@ -356,7 +365,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
       return;
     }
 
-    if (view === "add") {
+    if (view === "add" || view === "edit") {
       handleFormInput(trimmed);
       return;
     }
@@ -414,12 +423,25 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
       return;
     }
 
-    if (command === "rm" && parts[1]) {
-      const idx = parseInt(parts[1], 10) - 1;
+    if (command === "rm") {
+      const idx = parts[1] ? parseInt(parts[1], 10) - 1 : selectedIdx;
       if (idx >= 0 && idx < connections.length && vault) {
         vault.removeConnection(connections[idx].id);
         refreshList();
         setStatus(`Removed: ${connections[idx].name}`);
+      }
+      return;
+    }
+
+    if (command === "edit") {
+      const idx = parts[1] ? parseInt(parts[1], 10) - 1 : selectedIdx;
+      if (idx >= 0 && idx < connections.length) {
+        const conn = connections[idx];
+        setEditingId(conn.id);
+        setFormData({ ...conn });
+        setFormStep(1);
+        setView("edit");
+        setStatus(`Editing: ${conn.name} · Enter connection name (or Enter to keep):`);
       }
       return;
     }
@@ -465,6 +487,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
       if (view !== "list") {
         setView("list");
         setFormStep(0);
+        setEditingId(null);
         setPwStep(0);
         setOldPw("");
         setNewPw("");
@@ -489,7 +512,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
   return (
     <Box flexDirection="column" width={termWidth} height={termHeight - 4} paddingX={margin} overflow="hidden">
       <Box marginBottom={1} height={1}>
-        <Breadcrumb items={["Home", view === "add" ? "Add Connection" : view === "unlock" ? (vaultMode === "unlock" ? "Unlock Vault" : "Create Vault") : "Connections"]} />
+        <Breadcrumb items={["Home", view === "add" ? "Add Connection" : view === "edit" ? "Edit Connection" : view === "unlock" ? (vaultMode === "unlock" ? "Unlock Vault" : "Create Vault") : "Connections"]} />
       </Box>
 
       <Box flexDirection="column" height={availH} overflow="hidden">
@@ -580,8 +603,8 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
           </StyledBox>
         )}
 
-        {view === "add" && (
-          <StyledBox title="Add Connection" focused padding={1} height={availH} overflow="hidden">
+        {(view === "add" || view === "edit") && (
+          <StyledBox title={view === "edit" ? "Edit Connection" : "Add Connection"} focused padding={1} height={availH} overflow="hidden">
             <Box flexDirection="column">
               <Box marginBottom={1} flexDirection="row" justifyContent="space-between">
                 <Text color={colors.purple} bold>
@@ -731,7 +754,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
         <InputBar
           onSubmit={handleSubmit}
           masked={isPasswordStep()}
-          placeholder={view === "unlock" ? (vaultMode === "confirm" ? "Confirm password" : "Master password") : view === "add" ? getFormPlaceholder(formStep) : view === "changepw" ? getPwPlaceholder(pwStep) : view === "export" ? (exportedBundle ? "done - press esc to return" : "Encryption password (min 8 chars)") : view === "import" ? (bundleData ? "Decryption password" : "Paste bundle string") : "connect · add · test · rm <n> · changepw · export · import · back"}
+          placeholder={view === "unlock" ? (vaultMode === "confirm" ? "Confirm password" : "Master password") : view === "add" || view === "edit" ? getFormPlaceholder(formStep) : view === "changepw" ? getPwPlaceholder(pwStep) : view === "export" ? (exportedBundle ? "done - press esc to return" : "Encryption password (min 8 chars)") : view === "import" ? (bundleData ? "Decryption password" : "Paste bundle string") : "connect · add · edit · test · rm <n> · changepw · export · import · back"}
         />
       </Box>
 
@@ -740,7 +763,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
           shortcuts={[
             { key: "Up/Dn", label: "select" },
             { key: "Enter", label: view === "unlock" ? "confirm" : "connect" },
-            { key: "esc", label: view === "add" ? "cancel" : "back" },
+            { key: "esc", label: view === "add" || view === "edit" ? "cancel" : "back" },
           ]}
         />
       </Box>
