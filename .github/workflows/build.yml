@@ -48,16 +48,39 @@ jobs:
       - name: Cache node_modules
         uses: actions/cache@v4
         with:
-          path: node_modules
+          path: |
+            node_modules
+            ~/.bun/install/cache
           key: deps-${{ runner.os }}-${{ hashFiles('package.json') }}
           restore-keys: deps-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --no-progress
 
-      - name: Patch ink devtools
-        shell: bash
+      - name: Patch ink (Unix)
+        if: runner.os != 'Windows'
         run: bash scripts/prebuild.sh
+
+      - name: Patch ink (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          # Inline patch for Windows — avoid sed -i.bak on Git Bash (slow)
+          INK_DEVTOOLS="node_modules/ink/build/devtools.js"
+          INK_APP="node_modules/ink/build/components/App.js"
+          if [ -f "$INK_DEVTOOLS" ]; then
+            printf '// Patched by CI — devtools disabled\nconst connectToDevtools = () => {};\nexport default connectToDevtools;\n' > "$INK_DEVTOOLS"
+          fi
+          if [ -f "$INK_APP" ]; then
+            node -e "
+              const fs=require('fs');
+              let s=fs.readFileSync('$INK_APP','utf8');
+              s=s.replace(/stdin\.ref\(\);/g,'if (typeof stdin.ref === \"function\") stdin.ref();');
+              s=s.replace(/stdin\.unref\(\);/g,'if (typeof stdin.unref === \"function\") stdin.unref();');
+              fs.writeFileSync('$INK_APP',s);
+            "
+          fi
+          echo "Patched ink for Windows build"
 
       - name: Build binary
         run: bun build src/index.tsx --compile --target ${{ matrix.target }} --outfile qore
