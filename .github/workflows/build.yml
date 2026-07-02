@@ -45,13 +45,20 @@ jobs:
         with:
           bun-version: "1.2.0"
 
+      - name: Disable Windows Defender scanning (speed up I/O)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Add-MpPreference -ExclusionPath "${{ github.workspace }}"
+          Add-MpPreference -ExclusionPath "$env:USERPROFILE\.bun"
+
       - name: Cache node_modules
         uses: actions/cache@v4
         with:
           path: |
             node_modules
             ~/.bun/install/cache
-          key: deps-${{ runner.os }}-${{ hashFiles('package.json') }}
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: deps-${{ runner.os }}-
 
       - name: Install dependencies

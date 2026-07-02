@@ -34,7 +34,7 @@ jobs:
           path: |
             node_modules
             ~/.bun/install/cache
-          key: deps-${{ runner.os }}-${{ hashFiles('package.json') }}
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: deps-${{ runner.os }}-
 
       - name: Install dependencies
@@ -67,7 +67,7 @@ jobs:
           path: |
             node_modules
             ~/.bun/install/cache
-          key: deps-${{ runner.os }}-${{ hashFiles('package.json') }}
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: deps-${{ runner.os }}-
 
       - name: Install dependencies
