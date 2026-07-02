@@ -89,6 +89,11 @@ jobs:
           fi
           echo "Patched ink for Windows build"
 
+          # Remove ssh2 native crypto binding and cpu-features (force JS fallback)
+          rm -f "node_modules/ssh2/lib/protocol/crypto/build/Release/sshcrypto.node"
+          rm -rf "node_modules/cpu-features"
+          echo "Removed ssh2 native binding + cpu-features (JS fallback)"
+
       - name: Build binary
         run: bun build src/index.tsx --compile --target ${{ matrix.target }} --outfile qore
 

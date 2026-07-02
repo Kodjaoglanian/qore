@@ -30,3 +30,19 @@ if [ -f "$INK_APP" ]; then
 else
   echo "Warning: $INK_APP not found, skipping patch"
 fi
+
+# 3. Remove ssh2 native crypto binding — force pure JS fallback
+#    The .node binary can segfault on some filesystems and is not needed
+#    for bun build --compile (Bun has its own crypto). ssh2 has a built-in
+#    try/catch that falls back to JS if the binding is absent.
+SSHCRYPTO="node_modules/ssh2/lib/protocol/crypto/build/Release/sshcrypto.node"
+if [ -f "$SSHCRYPTO" ]; then
+  rm -f "$SSHCRYPTO"
+  echo "Removed ssh2 native crypto binding (using JS fallback)"
+fi
+
+# 4. Remove cpu-features — optional dep of ssh2, can also segfault
+if [ -d "node_modules/cpu-features" ]; then
+  rm -rf "node_modules/cpu-features"
+  echo "Removed cpu-features module (optional, not needed for build)"
+fi
