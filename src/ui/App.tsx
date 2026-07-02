@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Box, Text, useApp, useInput, useStdin } from "ink";
 import { colors } from "./theme.js";
 import pkg from "../../package.json" with { type: "json" };
@@ -15,6 +15,11 @@ import type { ConnectionConfig } from "../core/vault/types.js";
 import { CONNECTION_ICONS } from "../core/vault/types.js";
 import type { ProbeResult } from "../core/types.js";
 
+interface ActiveSession {
+  sessionId: string;
+  conn: ConnectionConfig;
+}
+
 type Screen = "welcome" | "discover" | "help" | "connections" | "service";
 
 export function App() {
@@ -27,8 +32,9 @@ export function App() {
   const [dockerStatus, setDockerStatus] = useState<"connected" | "disconnected" | "scanning">("disconnected");
   const [orchestrator] = useState(() => new Orchestrator());
   const [vault, setVault] = useState<Vault | null>(null);
-  const [activeConns, setActiveConns] = useState<ConnectionConfig[]>([]);
+  const [activeConns, setActiveConns] = useState<ActiveSession[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
+  const sessionCounter = useRef(0);
 
   useEffect(() => {
     setRawMode(true);
@@ -110,14 +116,11 @@ export function App() {
   }, [activeIdx]);
 
   const handleConnect = useCallback((conn: ConnectionConfig) => {
+    sessionCounter.current += 1;
+    const sessionId = `session-${sessionCounter.current}`;
     setActiveConns((prev) => {
-      const existing = prev.findIndex((c) => c.id === conn.id);
-      if (existing >= 0) {
-        setActiveIdx(existing);
-        return prev;
-      }
       setActiveIdx(prev.length);
-      return [...prev, conn];
+      return [...prev, { sessionId, conn }];
     });
     setScreen("service");
   }, []);
@@ -184,10 +187,10 @@ export function App() {
             {activeConns.length > 1 && (
               <Box flexDirection="column" width={termWidth} flexShrink={0}>
                 <Box flexDirection="row" height={1} width={termWidth} overflow="hidden">
-                  {activeConns.map((c, i) => (
-                    <Box key={c.id} marginRight={1}>
+                  {activeConns.map((s, i) => (
+                    <Box key={s.sessionId} marginRight={1}>
                       <Text color={i === activeIdx ? colors.purpleBright : colors.textMuted}>
-                        {i === activeIdx ? "▸ " : "  "}{CONNECTION_ICONS[c.type]} {c.name}
+                        {i === activeIdx ? "▸ " : "  "}{CONNECTION_ICONS[s.conn.type]} {s.conn.name}
                         {i === activeIdx ? " ◂" : ""}
                       </Text>
                     </Box>
@@ -198,17 +201,18 @@ export function App() {
                 </Box>
               </Box>
             )}
-            {activeConns.map((conn, i) => (
+            {activeConns.map((s, i) => (
               <Box
-                key={conn.id}
+                key={s.sessionId}
                 display={i === activeIdx ? "flex" : "none"}
                 width={termWidth}
                 overflow="hidden"
               >
                 <ServiceScreen
-                  conn={conn}
+                  conn={s.conn}
                   onBack={() => setScreen("connections")}
                   onClose={handleCloseConn}
+                  onNewSession={() => handleConnect(s.conn)}
                   tabCount={activeConns.length}
                   tabIdx={i}
                   focused={i === activeIdx}

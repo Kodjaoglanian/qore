@@ -12,12 +12,17 @@ import type { ConnectionConfig, ConnectionType } from "../core/vault/types.js";
 import { CONNECTION_LABELS, CONNECTION_ICONS, DEFAULT_PORTS } from "../core/vault/types.js";
 import { getManager } from "../core/connections/manager.js";
 
+interface ActiveSession {
+  sessionId: string;
+  conn: ConnectionConfig;
+}
+
 interface ConnectionsScreenProps {
   vault: Vault | null;
   onVaultUnlock: (vault: Vault) => void;
   onConnect: (conn: ConnectionConfig) => void;
   onBack: () => void;
-  activeConns?: ConnectionConfig[];
+  activeConns?: ActiveSession[];
 }
 
 type View = "list" | "add" | "edit" | "changepw" | "export" | "import" | "unlock";
@@ -541,7 +546,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
                 </Box>
               ) : (
                 connections.map((conn, i) => {
-                  const isOpen = activeConns.some((c) => c.id === conn.id);
+                  const openCount = activeConns.filter((s) => s.conn.id === conn.id).length;
                   return (
                   <Box key={conn.id} flexDirection="row">
                     <Text color={i === selectedIdx ? colors.purple : colors.textDim}>
@@ -554,8 +559,8 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
                     <Text color={i === selectedIdx ? colors.purpleBright : colors.textMuted}>
                       {"  "}{conn.type} · {conn.host}:{conn.port}
                     </Text>
-                    {isOpen && (
-                      <Text color={colors.green} bold>{"  [open]"}</Text>
+                    {openCount > 0 && (
+                      <Text color={colors.green} bold>{"  [open" + (openCount > 1 ? ` x${openCount}` : "") + "]"}</Text>
                     )}
                     {testing === conn.id && (
                       <Text color={colors.yellow}>{"  testing..."}</Text>
