@@ -139,8 +139,6 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
           <Box flexDirection="column">
             <CmdRow cmd="refresh" desc="re-check all connections" />
             <CmdRow cmd="auto" desc="toggle auto-refresh" />
-            <CmdRow cmd="interval <s>" desc="set check interval (5-3600)" />
-            <CmdRow cmd="clear" desc="clear health history" />
           </Box>
         </StyledBox>
 
