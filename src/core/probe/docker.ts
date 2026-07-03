@@ -136,6 +136,27 @@ export async function getDockerImages(): Promise<DockerImage[]> {
   }
 }
 
+export async function removeImage(id: string): Promise<boolean> {
+  if (!existsSync(DOCKER_SOCKET)) return false;
+  try {
+    await dockerRequest("DELETE", `/images/${id}?force=true`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function pruneImages(): Promise<number> {
+  if (!existsSync(DOCKER_SOCKET)) return 0;
+  try {
+    const raw = await dockerRequest("POST", "/images/prune");
+    const result = JSON.parse(raw);
+    return result.ImagesDeleted?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function pruneStoppedContainers(): Promise<number> {
   if (!existsSync(DOCKER_SOCKET)) return 0;
   try {

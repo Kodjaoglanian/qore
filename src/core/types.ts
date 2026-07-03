@@ -42,11 +42,70 @@ export interface DaemonProcess {
   manager: "pm2" | "systemd";
 }
 
+export interface HostInfo {
+  hostname: string;
+  os: string;
+  kernel: string;
+  uptime: string;
+  cpuCores: number;
+  cpuModel: string;
+  memoryTotal: number;
+  memoryUsed: number;
+  memoryFree: number;
+  swapTotal: number;
+  swapUsed: number;
+  loadAvg: [number, number, number];
+  disks: DiskInfo[];
+}
+
+export interface DiskInfo {
+  filesystem: string;
+  mount: string;
+  size: string;
+  used: string;
+  avail: string;
+  usePercent: string;
+}
+
+export interface NetworkInterface {
+  name: string;
+  flags: string;
+  mtu: number;
+  state: string;
+  mac: string;
+  ipv4: string[];
+  ipv6: string[];
+}
+
+export interface RouteInfo {
+  destination: string;
+  gateway: string;
+  genmask: string;
+  flags: string;
+  interface: string;
+  metric: number;
+}
+
+export interface FirewallRule {
+  chain: string;
+  target: string;
+  protocol: string;
+  source: string;
+  destination: string;
+  port: string;
+  interface: string;
+}
+
 export interface ProbeResult {
   ports: DiscoveredPort[];
   containers: DockerContainer[];
   dockerInfo: DockerInfo | null;
+  dockerImages: DockerImage[];
   daemons: DaemonProcess[];
+  hostInfo: HostInfo | null;
+  networkInterfaces: NetworkInterface[];
+  routes: RouteInfo[];
+  firewallRules: FirewallRule[];
   timestamp: number;
 }
 
