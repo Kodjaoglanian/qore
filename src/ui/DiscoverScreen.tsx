@@ -11,6 +11,8 @@ import {
   startContainer, stopContainer, restartContainer, removeContainer,
   getContainerLogs, inspectContainer, pruneStoppedContainers,
   removeImage, pruneImages,
+  getContainerStats, execInContainer, batchAction,
+  type ContainerStats,
 } from "../core/probe/docker.js";
 import { formatBytes } from "../core/probe/system.js";
 import { killProcess } from "../core/probe/processes.js";
@@ -25,7 +27,7 @@ interface DiscoverScreenProps {
 }
 
 type Section = "ports" | "containers" | "images" | "daemons" | "system" | "network" | "processes" | "services";
-type Overlay = null | "logs" | "inspect";
+type Overlay = null | "logs" | "inspect" | "stats" | "exec";
 
 const SECTION_ORDER: Section[] = ["ports", "containers", "images", "daemons", "system", "network", "processes", "services"];
 const SECTION_LABELS: Record<Section, string> = {
@@ -187,6 +189,18 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
         setOverlayContent(info);
         return;
       }
+      case "stats": {
+        setOverlay("stats");
+        setOverlayContent("Loading stats...");
+        setOverlayScroll(0);
+        const stats = await getContainerStats(c.id);
+        if (stats) {
+          setOverlayContent(formatStats(c.name, stats));
+        } else {
+          setOverlayContent("Failed to get stats. Container may be stopped.");
+        }
+        return;
+      }
     }
   }, [fContainers, selectedIdx, onRefresh]);
 
@@ -268,7 +282,15 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
     }
   }, [fServices, selectedIdx, onRefresh]);
 
-  const handleSubmit = useCallback((cmd: string) => {
+  const handleBatchAction = useCallback(async (action: "start" | "stop" | "restart") => {
+    if (fContainers.length === 0) return;
+    setActionMsg(`batch ${action}ing ${fContainers.length} containers...`);
+    const result = await batchAction(action, fContainers.map(c => c.id));
+    setActionMsg(`[ok] ${result.success} succeeded, ${result.failed} failed`);
+    onRefresh();
+  }, [fContainers, onRefresh]);
+
+  const handleSubmit = useCallback(async (cmd: string) => {
     const trimmed = cmd.trim();
     if (!trimmed) return;
     const lower = trimmed.toLowerCase();
@@ -294,7 +316,21 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       return;
     }
 
-    const localCmds = ["start", "stop", "restart", "remove", "rm", "logs", "inspect", "prune", "refresh", "rm-image", "prune-images", "kill", "kill-9", "svc-start", "svc-stop", "svc-restart", "svc-logs"];
+    const localCmds = ["start", "stop", "restart", "remove", "rm", "logs", "inspect", "prune", "refresh", "rm-image", "prune-images", "kill", "kill-9", "svc-start", "svc-stop", "svc-restart", "svc-logs", "stats", "batch-start", "batch-stop", "batch-restart"];
+    if (lower.startsWith("exec ")) {
+      const cmd = trimmed.slice(5);
+      if (section === "containers" && fContainers.length > 0) {
+        const c = fContainers[selectedIdx];
+        if (c) {
+          setOverlay("exec");
+          setOverlayContent(`Executing: ${cmd}`);
+          setOverlayScroll(0);
+          const result = await execInContainer(c.id, cmd);
+          setOverlayContent(result);
+        }
+      }
+      return;
+    }
     if (localCmds.includes(lower)) {
       if (lower === "prune") { handlePrune(); return; }
       if (lower === "prune-images") { handleImageAction("prune-images"); return; }
@@ -311,6 +347,10 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       if (lower === "svc-stop") { handleServiceAction("svc-stop"); return; }
       if (lower === "svc-restart") { handleServiceAction("svc-restart"); return; }
       if (lower === "svc-logs") { handleServiceAction("svc-logs"); return; }
+      if (lower === "stats") { handleContainerAction("stats"); return; }
+      if (lower === "batch-start") { handleBatchAction("start"); return; }
+      if (lower === "batch-stop") { handleBatchAction("stop"); return; }
+      if (lower === "batch-restart") { handleBatchAction("restart"); return; }
       if (section === "images") return;
       if (section === "processes" || section === "services") return;
       handleContainerAction(lower);
@@ -318,7 +358,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
     }
 
     onCommand(lower);
-  }, [handleContainerAction, handleImageAction, handlePrune, handleProcessAction, handleServiceAction, onRefresh, onCommand, section]);
+  }, [handleContainerAction, handleImageAction, handlePrune, handleProcessAction, handleServiceAction, handleBatchAction, onRefresh, onCommand, section]);
 
   useInput((input, key) => {
     if (overlay) {
@@ -372,12 +412,12 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       <Box flexDirection="column" width={termWidth} height={termHeight - 4} overflow="hidden" paddingX={margin}>
         <Box marginBottom={1} height={1} flexDirection="row" justifyContent="space-between">
           <Box flexDirection="row">
-            <Text color={colors.purple} bold>{overlay === "logs" ? "[Logs]" : "[Inspect]"}</Text>
+            <Text color={colors.purple} bold>{overlay === "logs" ? "[Logs]" : overlay === "inspect" ? "[Inspect]" : overlay === "stats" ? "[Stats]" : "[Exec]"}</Text>
             <Text color={colors.textDim}> {truncate(c?.name ?? "", 30)}</Text>
           </Box>
           <ScrollIndicator offset={overlayScroll} total={allLines.length} visible={overlayH} />
         </Box>
-        <StyledBox title={overlay === "logs" ? "Container Logs" : "Container Details"} focused variant="overlay" height={overlayH + 4} overflow="hidden" padding={1}>
+        <StyledBox title={overlay === "logs" ? "Container Logs" : overlay === "inspect" ? "Container Details" : overlay === "stats" ? "Container Stats" : "Exec Output"} focused variant="overlay" height={overlayH + 4} overflow="hidden" padding={1}>
           <Box flexDirection="column" overflow="hidden">
             {visibleLines.map((line, i) => (
               <Box key={i}><Text color={i % 2 === 0 ? colors.text : colors.textMuted} wrap="truncate">{line.slice(0, innerWidth)}</Text></Box>
@@ -693,7 +733,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
-          placeholder="start · stop · rm · kill · kill-9 · svc-start · svc-stop · svc-restart · svc-logs · prune · filter <text> · 1-8 · back"
+          placeholder="start · stop · rm · kill · stats · exec <cmd> · batch-start · batch-stop · svc-start · svc-logs · prune · filter <text> · 1-8 · back"
           focused={true}
         />
       </Box>
@@ -715,4 +755,17 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
 function truncate(str: string, len: number): string {
   if (str.length <= len) return str;
   return str.slice(0, Math.max(1, len - 1)) + "…";
+}
+
+function formatStats(name: string, stats: ContainerStats): string {
+  const lines = [
+    `Container: ${name}`,
+    "",
+    `CPU:     ${stats.cpuPercent.toFixed(2)}%`,
+    `Memory:  ${formatBytes(stats.memUsage)} / ${formatBytes(stats.memLimit)} (${stats.memPercent.toFixed(1)}%)`,
+    `Network: ↓ ${formatBytes(stats.netInput)}  ↑ ${formatBytes(stats.netOutput)}`,
+    `Block:   read ${formatBytes(stats.blockRead)}  write ${formatBytes(stats.blockWrite)}`,
+    `PIDs:    ${stats.pids}`,
+  ];
+  return lines.join("\n");
 }

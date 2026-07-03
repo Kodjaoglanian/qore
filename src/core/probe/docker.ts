@@ -266,3 +266,83 @@ function parseChunked(body: string): string {
   }
   return result;
 }
+
+export interface ContainerStats {
+  cpuPercent: number;
+  memUsage: number;
+  memLimit: number;
+  memPercent: number;
+  netInput: number;
+  netOutput: number;
+  blockRead: number;
+  blockWrite: number;
+  pids: number;
+}
+
+export async function getContainerStats(id: string): Promise<ContainerStats | null> {
+  if (!existsSync(DOCKER_SOCKET)) return null;
+  try {
+    const raw = await dockerRequest("GET", `/containers/${id}/stats?stream=false`);
+    const stats = JSON.parse(raw);
+    const memUsage = stats.memory_stats?.usage ?? 0;
+    const memLimit = stats.memory_stats?.limit ?? 0;
+    const memPercent = memLimit > 0 ? (memUsage / memLimit) * 100 : 0;
+
+    let cpuPercent = 0;
+    const cpuDelta = stats.cpu_stats?.cpu_usage?.total_usage - stats.precpu_stats?.cpu_usage?.total_usage;
+    const systemDelta = stats.cpu_stats?.system_cpu_usage - stats.precpu_stats?.system_cpu_usage;
+    const onlineCpus = stats.cpu_stats?.online_cpus ?? 1;
+    if (systemDelta > 0 && cpuDelta > 0) {
+      cpuPercent = (cpuDelta / systemDelta) * onlineCpus * 100;
+    }
+
+    const netInput = stats.networks?.eth0?.rx_bytes ?? 0;
+    const netOutput = stats.networks?.eth0?.tx_bytes ?? 0;
+    const blockRead = stats.blkio_stats?.io_service_bytes_recursive?.find((b: any) => b.op === "Read")?.value ?? 0;
+    const blockWrite = stats.blkio_stats?.io_service_bytes_recursive?.find((b: any) => b.op === "Write")?.value ?? 0;
+    const pids = stats.pids_stats?.current ?? 0;
+
+    return { cpuPercent, memUsage, memLimit, memPercent, netInput, netOutput, blockRead, blockWrite, pids };
+  } catch {
+    return null;
+  }
+}
+
+export async function execInContainer(id: string, command: string): Promise<string> {
+  if (!existsSync(DOCKER_SOCKET)) return "Docker not available";
+  try {
+    const createProc = Bun.spawn([
+      "curl", "-s", "--unix-socket", DOCKER_SOCKET,
+      "-X", "POST", "-H", "Content-Type: application/json",
+      "-d", JSON.stringify({ AttachStdout: true, AttachStderr: true, Cmd: ["sh", "-c", command] }),
+      `http://localhost/containers/${id}/exec`,
+    ], { stdout: "pipe", stderr: "pipe" });
+    const createRaw = await new Response(createProc.stdout).text();
+    const execInfo = JSON.parse(createRaw);
+    const execId = execInfo.Id;
+
+    const startProc = Bun.spawn([
+      "curl", "-s", "--unix-socket", DOCKER_SOCKET,
+      "-X", "POST", "-H", "Content-Type: application/json",
+      `http://localhost/exec/${execId}/start`,
+    ], { stdout: "pipe", stderr: "pipe" });
+    const output = await new Response(startProc.stdout).text();
+    return output || "(no output)";
+  } catch (err) {
+    return `Error: ${err}`;
+  }
+}
+
+export async function batchAction(action: "start" | "stop" | "restart", ids: string[]): Promise<{ success: number; failed: number }> {
+  let success = 0;
+  let failed = 0;
+  for (const id of ids) {
+    try {
+      await dockerRequest("POST", `/containers/${id}/${action}`);
+      success++;
+    } catch {
+      failed++;
+    }
+  }
+  return { success, failed };
+}
