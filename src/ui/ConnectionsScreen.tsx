@@ -46,9 +46,14 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
   const [bundleData, setBundleData] = useState("");
   const [exportedBundle, setExportedBundle] = useState<string | null>(null);
 
-  // Vault unlock state
+  // Vault unlock state — re-check on every render to prevent stale init mode
   const vaultInitialized = Vault.isInitialized();
   const [vaultMode, setVaultMode] = useState<"init" | "confirm" | "unlock">(vaultInitialized ? "unlock" : "init");
+
+  // Safety: if vault becomes initialized while in init/confirm mode, switch to unlock
+  if (vaultInitialized && (vaultMode === "init" || vaultMode === "confirm")) {
+    setVaultMode("unlock");
+  }
   const [vaultPw, setVaultPw] = useState("");
   const [vaultError, setVaultError] = useState<string | null>(null);
 
@@ -70,6 +75,11 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
     setVaultError(null);
 
     if (vaultMode === "init") {
+      if (Vault.isInitialized()) {
+        setVaultError("Vault already exists. Use unlock instead.");
+        setVaultMode("unlock");
+        return;
+      }
       setVaultPw(value);
       setVaultMode("confirm");
       return;
@@ -85,10 +95,16 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
       try {
         const v = Vault.init(value);
         onVaultUnlock(v);
-      } catch {
-        setVaultError("Failed to create vault.");
-        setVaultPw("");
-        setVaultMode("init");
+      } catch (err) {
+        const msg = (err as Error).message;
+        if (msg.includes("already exists")) {
+          setVaultError("Vault already exists. Please use unlock with your password.");
+          setVaultMode("unlock");
+        } else {
+          setVaultError("Failed to create vault.");
+          setVaultPw("");
+          setVaultMode("init");
+        }
       }
       return;
     }
