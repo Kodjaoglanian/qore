@@ -58,6 +58,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
   const [overlayScroll, setOverlayScroll] = useState(0);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [filter, setFilter] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
   const containers = probe?.containers ?? [];
   const ports = probe?.ports ?? [];
@@ -121,9 +122,9 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
   }, [section, fContainers, fPorts, fImages, fDaemons, fProcesses, fServices]);
 
   // Height calculations
-  const availH = Math.max(8, termHeight - HEADER - FOOTER);
+  const availH = Math.max(8, termHeight - HEADER - FOOTER - 2);
   const focusedH = Math.floor(availH * 0.50);
-  const otherH = Math.floor((availH - focusedH - 6) / 7);
+  const otherH = Math.floor((availH - focusedH - 8) / 7);
 
   const sectionH = (s: Section) => s === section ? focusedH : Math.max(3, otherH);
   const maxItems = (s: Section) => Math.max(1, sectionH(s) - BOX_OVERHEAD);
@@ -146,6 +147,12 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       return () => clearTimeout(t);
     }
   }, [actionMsg]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(() => onRefresh(), 5000);
+    return () => clearInterval(interval);
+  }, [autoRefresh, onRefresh]);
 
   const handleContainerAction = useCallback(async (action: string) => {
     if (fContainers.length === 0) return;
@@ -316,7 +323,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       return;
     }
 
-    const localCmds = ["start", "stop", "restart", "remove", "rm", "logs", "inspect", "prune", "refresh", "rm-image", "prune-images", "kill", "kill-9", "svc-start", "svc-stop", "svc-restart", "svc-logs", "stats", "batch-start", "batch-stop", "batch-restart"];
+    const localCmds = ["start", "stop", "restart", "remove", "rm", "logs", "inspect", "prune", "refresh", "rm-image", "prune-images", "kill", "kill-9", "svc-start", "svc-stop", "svc-restart", "svc-logs", "stats", "batch-start", "batch-stop", "batch-restart", "auto"];
     if (lower.startsWith("exec ")) {
       const cmd = trimmed.slice(5);
       if (section === "containers" && fContainers.length > 0) {
@@ -336,6 +343,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       if (lower === "prune-images") { handleImageAction("prune-images"); return; }
       if (lower === "rm-image") { handleImageAction("rm-image"); return; }
       if (lower === "refresh") { onRefresh(); return; }
+      if (lower === "auto") { setAutoRefresh(a => !a); setActionMsg(autoRefresh ? "auto-refresh off" : "auto-refresh on (5s)"); return; }
       if (lower === "rm") {
         if (section === "images") handleImageAction("rm-image");
         else handleContainerAction("remove");
@@ -475,6 +483,15 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       {/* Section tabs */}
       <Box height={1} marginBottom={1}>
         <Text color={colors.purpleDim} bold>{tabStr}</Text>
+        {autoRefresh && <Text color={colors.green}> {" ⟳ auto"}</Text>}
+      </Box>
+
+      {/* Summary bar */}
+      <Box height={1} marginBottom={1}>
+        <Text color={colors.textMuted}>
+          {containers.length} containers · {images.length} images · {ports.length} ports · {daemons.length} daemons · {processes.length} procs · {services.length} services
+          {hostInfo && ` · ${hostInfo.cpuCores} cores · ${formatBytes(hostInfo.memoryUsed)}/${formatBytes(hostInfo.memoryTotal)}`}
+        </Text>
       </Box>
 
       {/* Network Ports */}
@@ -733,7 +750,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
-          placeholder="start · stop · rm · kill · stats · exec <cmd> · batch-start · batch-stop · svc-start · svc-logs · prune · filter <text> · 1-8 · back"
+          placeholder="start · stop · rm · kill · stats · exec <cmd> · batch-start · auto · svc-start · svc-logs · prune · filter <text> · 1-8 · back"
           focused={true}
         />
       </Box>
