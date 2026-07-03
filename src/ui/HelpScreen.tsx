@@ -112,6 +112,19 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
           </Box>
         </StyledBox>
 
+        <StyledBox title="SSH" focused={false} padding={1} marginBottom={1}>
+          <Box flexDirection="column">
+            <CmdRow cmd="shell" desc="open interactive terminal (bash)" />
+            <CmdRow cmd="exec <cmd>" desc="run command on remote server" />
+            <CmdRow cmd="tail <file> [-f]" desc="view or follow file" />
+            <CmdRow cmd="edit <file>" desc="edit file in nano/vim" />
+            <CmdRow cmd="docker ps" desc="list containers" />
+            <CmdRow cmd="compose <cmd>" desc="docker compose operations" />
+            <CmdRow cmd="security-audit" desc="run security audit" />
+            <CmdRow cmd="snapshot" desc="capture server state" />
+          </Box>
+        </StyledBox>
+
         <StyledBox title="Navigation Keys" focused={false} padding={1}>
           <Box flexDirection="column">
             <KeyRow keyLabel="Up/Dn" desc="select item" />

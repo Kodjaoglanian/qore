@@ -325,6 +325,15 @@ export class SshManager implements ConnectionManager {
     });
   }
 
+  async openShell(
+    config: ConnectionConfig,
+    cols: number,
+    rows: number,
+    onData: (data: string) => void,
+  ): Promise<PtyHandle> {
+    return this.execPty(config, "bash -l 2>/dev/null || sh -l", cols, rows, onData);
+  }
+
   async uploadFile(config: ConnectionConfig, localPath: string, remotePath: string): Promise<void> {
     const client = await this.connectClient(config);
     return new Promise((resolve, reject) => {

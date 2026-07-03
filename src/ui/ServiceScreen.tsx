@@ -108,7 +108,7 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = t
         setItems(["GET /", "GET /health", "GET /status", "GET /api", "GET /docs"]);
       } else if (conn.type === "ssh") {
         setItems([
-          "exec <command>", "sysinfo", "disk", "mem", "procs", "net",
+          "shell", "exec <command>", "sysinfo", "disk", "mem", "procs", "net",
           "ports", "firewall [status|allow|deny|enable|disable]",
           "top", "netstat", "tail <file> [-f]", "edit <file>",
           "security-audit", "snapshot", "diff <snap1> <snap2>",
@@ -480,6 +480,20 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = t
     // SSH commands
     if (conn.type === "ssh") {
       const ssh = getManager(conn.type) as SshManager;
+      if (command === "shell") {
+        setPtyTitle(`shell: ${conn.username || "root"}@${conn.host}`);
+        setOverlay(null);
+        setOverlayContent([]);
+        try {
+          const termW = Math.min(process.stdout.columns || 80, 200);
+          const termH = Math.max(8, (process.stdout.rows || 24) - 6);
+          const pty = await ssh.openShell(conn, termW, termH, () => {});
+          setPtyHandle(pty);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
       if (command === "exec") {
         const cmd = trimmed.slice(5).trim();
         if (!cmd) {
@@ -1758,7 +1772,7 @@ function getPlaceholder(type: string): string {
     case "mysql": return "tables <db> · desc <db> <t> · count <db> <t> · sample <db> <t> · size <db> · indexes <db> <t> · views <db> · funcs <db> · conns · queries · query <db> <sql> · export <db> <t> · explain <db> <sql> · slow-queries · logs · back · close · new · quit";
     case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · export <db> <coll> · explain <db> <json> · slow-queries · logs · back · close · new · quit";
     case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · logs · refresh · back · close · new · quit";
-    case "ssh": return "exec <cmd> · ports · firewall · top · netstat · tail <f> · edit <f> · security-audit · snapshot · diff <s1> <s2> · deploy <script> · git-status · compose <up|down|ps|logs> · ls · cat · find · services · docker ps · docker logs · users · cron · pkgs · kill · ping · upload/download · logs · reboot yes · back · close · new · quit";
+    case "ssh": return "shell · exec <cmd> · ports · firewall · top · netstat · tail <f> · edit <f> · security-audit · snapshot · diff <s1> <s2> · deploy <script> · git-status · compose <up|down|ps|logs> · ls · cat · find · services · docker ps · docker logs · users · cron · pkgs · kill · ping · upload/download · logs · reboot yes · back · close · new · quit";
     case "git": return "status · diff [--staged] · log · branches · checkout <b> · branch <n> · merge <b> · rebase <b> · stage [f] · unstage [f] · commit <msg> · amend · fetch · pull · push · cherry-pick <h> · revert <h> · blame <f> · tags · tag <n> · remotes · exec <args> · info · refresh · back · close · new · quit";
     default: return "info · refresh · back · close · new · quit";
   }

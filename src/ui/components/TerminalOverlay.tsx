@@ -113,6 +113,11 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
       return;
     }
 
+    if (key.ctrl && input === "d") {
+      pty.send("\x04");
+      return;
+    }
+
     if (key.upArrow) {
       scrollOffset.current = Math.max(0, scrollOffset.current - 1);
       setShowScroll(true);
