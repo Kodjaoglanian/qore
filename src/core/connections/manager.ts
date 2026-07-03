@@ -8,10 +8,17 @@ import { HttpManager } from "./http.js";
 import { SshManager } from "./ssh.js";
 import { GitManager } from "./git.js";
 
+export interface QuickStatus {
+  online: boolean;
+  info: string;
+  latency?: number;
+}
+
 export interface ConnectionManager {
   testConnection(config: ConnectionConfig): Promise<boolean>;
   getInfo(config: ConnectionConfig): Promise<Record<string, string>>;
   getLogs?(config: ConnectionConfig, opts?: { service?: string; tail?: number }): Promise<string[]>;
+  quickStatus?(config: ConnectionConfig): Promise<QuickStatus>;
 }
 
 export interface DatabaseManager extends ConnectionManager {

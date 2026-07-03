@@ -20,6 +20,7 @@ export function WelcomeScreen({ onCommand, vaultUnlocked }: WelcomeScreenProps) 
   const commands = [
     { cmd: "discover", desc: "scan ports, Docker & daemons", color: colors.cyan },
     { cmd: "connections", desc: "vault & manage Redis, Postgres, MongoDB, S3, Git", color: colors.purple },
+    { cmd: "dashboard", desc: "multi-service status overview", color: colors.green },
     { cmd: "help", desc: "show all commands & shortcuts", color: colors.blue },
     { cmd: "quit", desc: "exit Qore", color: colors.red },
   ];
@@ -61,7 +62,7 @@ export function WelcomeScreen({ onCommand, vaultUnlocked }: WelcomeScreenProps) 
       </Box>
 
       <Box marginX={margin} marginBottom={1}>
-        <InputBar onSubmit={onCommand} placeholder="discover · connections · help · quit" />
+        <InputBar onSubmit={onCommand} placeholder="discover · connections · dashboard · help · quit" />
       </Box>
 
       <Box marginX={margin}>

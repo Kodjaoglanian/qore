@@ -7,6 +7,7 @@ import { WelcomeScreen } from "./WelcomeScreen.js";
 import { DiscoverScreen } from "./DiscoverScreen.js";
 import { HelpScreen } from "./HelpScreen.js";
 import { ConnectionsScreen } from "./ConnectionsScreen.js";
+import { DashboardScreen } from "./DashboardScreen.js";
 import { ServiceScreen } from "./ServiceScreen.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { Orchestrator } from "../core/orchestrator.js";
@@ -21,7 +22,7 @@ interface ActiveSession {
   conn: ConnectionConfig;
 }
 
-type Screen = "welcome" | "discover" | "help" | "connections" | "service";
+type Screen = "welcome" | "discover" | "help" | "connections" | "service" | "dashboard";
 
 export function App() {
   const { exit } = useApp();
@@ -75,10 +76,20 @@ export function App() {
         case "vault":
           setScreen("connections");
           break;
+        case "dashboard":
+        case "dash":
+          if (vault && vault.isUnlocked()) {
+            setScreen("dashboard");
+          } else {
+            setScreen("connections");
+          }
+          break;
         case "back":
         case "home":
           if (screen === "service") {
             setScreen("connections");
+          } else if (screen === "dashboard") {
+            setScreen("welcome");
           } else {
             setScreen("welcome");
           }
@@ -188,6 +199,13 @@ export function App() {
             onConnect={handleConnect}
             onBack={() => setScreen("welcome")}
             activeConns={activeConns}
+          />
+        )}
+        {screen === "dashboard" && vault && vault.isUnlocked() && (
+          <DashboardScreen
+            vault={vault}
+            onConnect={handleConnect}
+            onBack={() => setScreen("welcome")}
           />
         )}
         {screen === "service" && activeConns.length > 0 && (
