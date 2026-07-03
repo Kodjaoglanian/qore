@@ -8,7 +8,6 @@ import { DiscoverScreen } from "./DiscoverScreen.js";
 import { HelpScreen } from "./HelpScreen.js";
 import { ConnectionsScreen } from "./ConnectionsScreen.js";
 import { DashboardScreen } from "./DashboardScreen.js";
-import { HealthScreen } from "./HealthScreen.js";
 import { ServiceScreen } from "./ServiceScreen.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { Orchestrator } from "../core/orchestrator.js";
@@ -23,7 +22,7 @@ interface ActiveSession {
   conn: ConnectionConfig;
 }
 
-type Screen = "welcome" | "discover" | "help" | "connections" | "service" | "dashboard" | "health";
+type Screen = "welcome" | "discover" | "help" | "connections" | "service" | "dashboard";
 
 export function App() {
   const { exit } = useApp();
@@ -85,19 +84,10 @@ export function App() {
             setScreen("connections");
           }
           break;
-        case "health":
-          if (vault && vault.isUnlocked()) {
-            setScreen("health");
-          } else {
-            setScreen("connections");
-          }
-          break;
         case "back":
         case "home":
           if (screen === "service") {
             setScreen("connections");
-          } else if (screen === "dashboard" || screen === "health") {
-            setScreen("welcome");
           } else {
             setScreen("welcome");
           }
@@ -211,13 +201,6 @@ export function App() {
         )}
         {screen === "dashboard" && vault && vault.isUnlocked() && (
           <DashboardScreen
-            vault={vault}
-            onConnect={handleConnect}
-            onBack={() => setScreen("welcome")}
-          />
-        )}
-        {screen === "health" && vault && vault.isUnlocked() && (
-          <HealthScreen
             vault={vault}
             onConnect={handleConnect}
             onBack={() => setScreen("welcome")}

@@ -30,8 +30,7 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
           <Box flexDirection="column">
             <CmdRow cmd="discover" desc="scan ports, Docker & daemons" />
             <CmdRow cmd="connections" desc="manage saved connections" />
-            <CmdRow cmd="dashboard" desc="multi-service status overview" />
-            <CmdRow cmd="health" desc="health checks with history & sparklines" />
+            <CmdRow cmd="dashboard" desc="multi-service status, health & sparklines" />
             <CmdRow cmd="vault" desc="unlock / create credential vault" />
             <CmdRow cmd="help" desc="show this help screen" />
             <CmdRow cmd="back" desc="go back to welcome" />
@@ -136,12 +135,11 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
           </Box>
         </StyledBox>
 
-        <StyledBox title="Dashboard & Health" focused={false} padding={1} marginBottom={1}>
+        <StyledBox title="Dashboard" focused={false} padding={1} marginBottom={1}>
           <Box flexDirection="column">
             <CmdRow cmd="refresh" desc="re-check all connections" />
-            <CmdRow cmd="auto" desc="toggle auto-refresh (dashboard)" />
-            <CmdRow cmd="monitor" desc="toggle monitoring (health)" />
-            <CmdRow cmd="interval <s>" desc="set check interval (health)" />
+            <CmdRow cmd="auto" desc="toggle auto-refresh" />
+            <CmdRow cmd="interval <s>" desc="set check interval (5-3600)" />
             <CmdRow cmd="clear" desc="clear health history" />
           </Box>
         </StyledBox>

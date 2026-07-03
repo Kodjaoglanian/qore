@@ -10,6 +10,15 @@ import type { Vault } from "../core/vault/vault.js";
 import type { ConnectionConfig } from "../core/vault/types.js";
 import { CONNECTION_ICONS, CONNECTION_LABELS } from "../core/vault/types.js";
 import { getManager, type QuickStatus } from "../core/connections/manager.js";
+import {
+  addHealthCheck,
+  getHealthHistory,
+  getHealthConfig,
+  setHealthConfig,
+  clearHealthHistory,
+  renderSparkline,
+  type HealthCheck,
+} from "../core/health.js";
 
 interface DashboardScreenProps {
   vault: Vault;
@@ -22,6 +31,7 @@ interface StatusEntry {
   status: QuickStatus | null;
   loading: boolean;
   error: string | null;
+  history: HealthCheck[];
 }
 
 export function DashboardScreen({ vault, onConnect, onBack }: DashboardScreenProps) {
@@ -34,6 +44,7 @@ export function DashboardScreen({ vault, onConnect, onBack }: DashboardScreenPro
   const [status, setStatus] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<number>(0);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [config, setConfig] = useState(getHealthConfig());
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const checkAll = useCallback(async () => {
@@ -43,41 +54,101 @@ export function DashboardScreen({ vault, onConnect, onBack }: DashboardScreenPro
       return;
     }
 
-    setEntries(conns.map((conn) => ({ conn, status: null, loading: true, error: null })));
+    const existingHistory: Record<string, HealthCheck[]> = {};
+    for (const conn of conns) {
+      existingHistory[conn.id] = getHealthHistory(conn.id);
+    }
+
+    setEntries(conns.map((conn) => ({
+      conn,
+      status: null,
+      loading: true,
+      error: null,
+      history: existingHistory[conn.id] ?? [],
+    })));
 
     const results = await Promise.allSettled(
       conns.map(async (conn) => {
         const manager = getManager(conn.type);
         if (!manager) {
+          addHealthCheck({
+            connId: conn.id,
+            connName: conn.name,
+            connType: conn.type,
+            timestamp: new Date().toISOString(),
+            online: false,
+            latency: 0,
+            message: "No manager",
+          });
           return { conn, status: null, loading: false, error: "No manager" };
         }
+        const start = Date.now();
         if (manager.quickStatus) {
           try {
             const qs = await manager.quickStatus(conn);
+            addHealthCheck({
+              connId: conn.id,
+              connName: conn.name,
+              connType: conn.type,
+              timestamp: new Date().toISOString(),
+              online: qs.online,
+              latency: qs.latency ?? (Date.now() - start),
+              message: qs.info,
+            });
             return { conn, status: qs, loading: false, error: null };
           } catch (err) {
+            addHealthCheck({
+              connId: conn.id,
+              connName: conn.name,
+              connType: conn.type,
+              timestamp: new Date().toISOString(),
+              online: false,
+              latency: Date.now() - start,
+              message: (err as Error).message,
+            });
             return { conn, status: null, loading: false, error: (err as Error).message };
           }
         }
         try {
           const ok = await manager.testConnection(conn);
+          const latency = Date.now() - start;
+          addHealthCheck({
+            connId: conn.id,
+            connName: conn.name,
+            connType: conn.type,
+            timestamp: new Date().toISOString(),
+            online: ok,
+            latency,
+            message: ok ? "Connected" : "Connection failed",
+          });
           return {
             conn,
-            status: { online: ok, info: ok ? "Connected" : "Connection failed" },
+            status: { online: ok, info: ok ? "Connected" : "Connection failed", latency },
             loading: false,
             error: ok ? null : "Connection failed",
           };
         } catch (err) {
+          addHealthCheck({
+            connId: conn.id,
+            connName: conn.name,
+            connType: conn.type,
+            timestamp: new Date().toISOString(),
+            online: false,
+            latency: Date.now() - start,
+            message: (err as Error).message,
+          });
           return { conn, status: null, loading: false, error: (err as Error).message };
         }
       }),
     );
 
-    const newEntries = results.map((r, i) =>
-      r.status === "fulfilled"
-        ? { conn: r.value.conn, status: r.value.status, loading: false, error: r.value.error }
-        : { conn: conns[i], status: null, loading: false, error: "Unknown error" },
-    );
+    const newEntries = results.map((r, i) => {
+      const conn = conns[i];
+      const history = getHealthHistory(conn.id);
+      return r.status === "fulfilled"
+        ? { ...r.value, history }
+        : { conn, status: null, loading: false, error: "Unknown error", history };
+    });
 
     setEntries(newEntries);
     setLastRefresh(Date.now());
@@ -89,12 +160,12 @@ export function DashboardScreen({ vault, onConnect, onBack }: DashboardScreenPro
 
   useEffect(() => {
     if (autoRefresh) {
-      refreshTimer.current = setInterval(() => checkAll(), 10000);
+      refreshTimer.current = setInterval(() => checkAll(), config.intervalSec * 1000);
     }
     return () => {
       if (refreshTimer.current) clearInterval(refreshTimer.current);
     };
-  }, [autoRefresh, checkAll]);
+  }, [autoRefresh, checkAll, config.intervalSec]);
 
   useInput((input, key) => {
     if (key.escape) {
@@ -129,6 +200,25 @@ export function DashboardScreen({ vault, onConnect, onBack }: DashboardScreenPro
       return;
     }
 
+    if (command === "interval") {
+      const sec = parseInt(parts[1], 10);
+      if (isNaN(sec) || sec < 5 || sec > 3600) {
+        setStatus("[!] Usage: interval <seconds> (5-3600)");
+        return;
+      }
+      const newConfig = setHealthConfig({ intervalSec: sec });
+      setConfig(newConfig);
+      setStatus(`[ok] Interval set to ${sec}s`);
+      return;
+    }
+
+    if (command === "clear") {
+      clearHealthHistory();
+      setStatus("[ok] History cleared");
+      checkAll();
+      return;
+    }
+
     if (command === "connect") {
       const idx = parseInt(parts[1], 10) - 1;
       if (isNaN(idx) || idx < 0 || idx >= entries.length) {
@@ -148,11 +238,12 @@ export function DashboardScreen({ vault, onConnect, onBack }: DashboardScreenPro
       onConnect(entries[selectedIdx].conn);
       return;
     }
-  }, [entries, selectedIdx, onConnect, onBack, checkAll]);
+  }, [entries, selectedIdx, onConnect, onBack, checkAll, config.intervalSec]);
 
   const onlineCount = entries.filter((e) => e.status?.online).length;
   const offlineCount = entries.filter((e) => e.status && !e.status.online).length;
   const loadingCount = entries.filter((e) => e.loading).length;
+  const avgLatency = entries.filter((e) => e.status?.online && e.status?.latency).reduce((sum, e) => sum + (e.status?.latency ?? 0), 0) / (onlineCount || 1);
 
   return (
     <Box flexDirection="column" width={termWidth} height={termHeight - 4} paddingX={margin} overflow="hidden">
@@ -168,10 +259,11 @@ export function DashboardScreen({ vault, onConnect, onBack }: DashboardScreenPro
                 <Text color={colors.green} bold>{"  ● "}{onlineCount}{" online"}</Text>
                 {offlineCount > 0 && <Text color={colors.red} bold>{"  ● "}{offlineCount}{" offline"}</Text>}
                 {loadingCount > 0 && <Text color={colors.yellow}>{"  ● "}{loadingCount}{" checking..."}</Text>}
+                {onlineCount > 0 && <Text color={colors.textMuted}>{"  avg "}{Math.round(avgLatency)}{"ms"}</Text>}
               </Box>
               <Box flexDirection="row">
                 <Text color={colors.textMuted}>
-                  {"auto-refresh: "}{autoRefresh ? "ON (10s)" : "OFF"}{" · last: "}{lastRefresh > 0 ? new Date(lastRefresh).toLocaleTimeString() : "—"}
+                  {"auto-refresh: "}{autoRefresh ? `ON (${config.intervalSec}s)` : "OFF"}{" · last: "}{lastRefresh > 0 ? new Date(lastRefresh).toLocaleTimeString() : "—"}
                 </Text>
               </Box>
             </Box>
@@ -191,26 +283,44 @@ export function DashboardScreen({ vault, onConnect, onBack }: DashboardScreenPro
                   const dot = entry.loading ? "○" : st?.online ? "●" : st ? "✗" : "?";
                   const dotColor = entry.loading ? colors.yellow : st?.online ? colors.green : st ? colors.red : colors.textMuted;
 
+                  const latencies = entry.history.filter((h) => h.online).map((h) => h.latency);
+                  const sparkline = renderSparkline(latencies);
+                  const uptimeCount = entry.history.filter((h) => h.online).length;
+                  const uptimePct = entry.history.length > 0 ? Math.round((uptimeCount / entry.history.length) * 100) : 0;
+
                   return (
-                    <Box key={entry.conn.id} flexDirection="row">
-                      <Text color={isSelected ? colors.purple : colors.textDim}>
-                        {isSelected ? ">" : " "}{" "}
-                      </Text>
-                      <Text color={dotColor} bold>{dot}</Text>
-                      <Text color={colors.textDim}>{" "}{i + 1}{"."}</Text>
-                      <Text color={isSelected ? colors.textBright : colors.text}>
-                        {" "}{CONNECTION_ICONS[entry.conn.type]} {entry.conn.name}
-                      </Text>
-                      <Text color={isSelected ? colors.purpleBright : colors.textMuted}>
-                        {"  "}{CONNECTION_LABELS[entry.conn.type]} · {entry.conn.host}:{entry.conn.port}
-                      </Text>
-                      {st && (
-                        <Text color={st.online ? colors.green : colors.red}>
-                          {"  "}{st.info}{st.latency ? ` (${st.latency}ms)` : ""}
+                    <Box key={entry.conn.id} flexDirection="column">
+                      <Box flexDirection="row">
+                        <Text color={isSelected ? colors.purple : colors.textDim}>
+                          {isSelected ? ">" : " "}{" "}
                         </Text>
-                      )}
-                      {entry.error && !entry.loading && (
-                        <Text color={colors.red}>{"  "}{entry.error}</Text>
+                        <Text color={dotColor} bold>{dot}</Text>
+                        <Text color={colors.textDim}>{" "}{i + 1}{"."}</Text>
+                        <Text color={isSelected ? colors.textBright : colors.text}>
+                          {" "}{CONNECTION_ICONS[entry.conn.type]} {entry.conn.name}
+                        </Text>
+                        <Text color={isSelected ? colors.purpleBright : colors.textMuted}>
+                          {"  "}{CONNECTION_LABELS[entry.conn.type]} · {entry.conn.host}:{entry.conn.port}
+                        </Text>
+                        {st && (
+                          <Text color={st.online ? colors.green : colors.red}>
+                            {"  "}{st.info}{st.latency ? ` (${st.latency}ms)` : ""}
+                          </Text>
+                        )}
+                        {entry.error && !entry.loading && (
+                          <Text color={colors.red}>{"  "}{entry.error}</Text>
+                        )}
+                      </Box>
+                      {sparkline && (
+                        <Box flexDirection="row">
+                          <Text color={colors.textMuted}>{"      spark: "}</Text>
+                          <Text color={colors.cyan}>{sparkline}</Text>
+                          <Text color={colors.textMuted}>{"  uptime: "}</Text>
+                          <Text color={uptimePct >= 90 ? colors.green : uptimePct >= 50 ? colors.yellow : colors.red}>
+                            {uptimePct}{"%"}
+                          </Text>
+                          <Text color={colors.textMuted}>{"  ("}{entry.history.length}{" checks)"}</Text>
+                        </Box>
                       )}
                     </Box>
                   );
@@ -232,7 +342,7 @@ export function DashboardScreen({ vault, onConnect, onBack }: DashboardScreenPro
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
-          placeholder="connect <n> · refresh · auto · back"
+          placeholder="connect <n> · refresh · auto · interval <s> · clear · back"
         />
       </Box>
 
