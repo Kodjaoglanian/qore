@@ -11,6 +11,7 @@ import { Vault } from "../core/vault/vault.js";
 import type { ConnectionConfig, ConnectionGroup, ConnectionType } from "../core/vault/types.js";
 import { CONNECTION_LABELS, CONNECTION_ICONS, DEFAULT_PORTS } from "../core/vault/types.js";
 import { getManager } from "../core/connections/manager.js";
+import { loadSnippets, createSnippet, removeSnippet, getSnippetByName, type SnippetCommand, type Snippet } from "../core/snippets.js";
 
 interface ActiveSession {
   sessionId: string;
@@ -71,6 +72,13 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
   const [groups, setGroups] = useState<ConnectionGroup[]>(vaultReady ? vault!.getGroups() : []);
   const [groupFormStep, setGroupFormStep] = useState(0);
   const [groupFormData, setGroupFormData] = useState<{ name: string; selectedIds: Set<string> }>({ name: "", selectedIds: new Set() });
+
+  // Snippet state
+  const [snippets, setSnippets] = useState<Snippet[]>(loadSnippets());
+  const [recordingSnippet, setRecordingSnippet] = useState(false);
+  const [snippetName, setSnippetName] = useState("");
+  const [snippetCommands, setSnippetCommands] = useState<SnippetCommand[]>([]);
+  const [snippetsView, setSnippetsView] = useState(false);
 
   const refreshGroups = useCallback(() => {
     if (vault && vault.isUnlocked()) setGroups(vault.getGroups());
@@ -629,7 +637,139 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
       setStatus(`[ok] Opened ${conns.length} connection(s) from group "${groupName}"`);
       return;
     }
-  }, [view, connections, selectedIdx, vault, onBack, refreshList, refreshGroups, handleFormInput, handlePwInput, handleVaultSubmit, testConnection, onConnect, groups]);
+
+    if (command === "snippet") {
+      if (recordingSnippet) {
+        setStatus("[!] Already creating. Type 'snippet-save' to finish or 'snippet-cancel' to abort.");
+        return;
+      }
+      const name = parts.slice(1).join(" ");
+      if (!name) {
+        setStatus("[!] Usage: snippet <name>");
+        return;
+      }
+      if (getSnippetByName(name)) {
+        setStatus(`[!] Snippet "${name}" already exists`);
+        return;
+      }
+      setSnippetName(name);
+      setSnippetCommands([]);
+      setRecordingSnippet(true);
+      setSnippetsView(true);
+      setStatus(`Creating "${name}" — type 'add <conn_num> <command>' or 'done' to save`);
+      return;
+    }
+
+    if (command === "snippet-save" || (recordingSnippet && command === "done")) {
+      if (!recordingSnippet) {
+        setStatus("[!] Not creating a snippet");
+        return;
+      }
+      if (snippetCommands.length === 0) {
+        setStatus("[!] No commands added. Type 'snippet-cancel' to abort.");
+        return;
+      }
+      createSnippet(snippetName, snippetCommands);
+      setSnippets(loadSnippets());
+      setRecordingSnippet(false);
+      setSnippetsView(false);
+      setSnippetName("");
+      setSnippetCommands([]);
+      setStatus(`[ok] Saved snippet "${snippetName}" with ${snippetCommands.length} command(s)`);
+      return;
+    }
+
+    if (command === "snippet-cancel") {
+      if (!recordingSnippet) {
+        setStatus("[!] Not creating a snippet");
+        return;
+      }
+      setRecordingSnippet(false);
+      setSnippetsView(false);
+      setSnippetName("");
+      setSnippetCommands([]);
+      setStatus("[ok] Snippet creation cancelled");
+      return;
+    }
+
+    if (recordingSnippet && command === "add") {
+      const rest = trimmed.slice(4).trim();
+      const spaceIdx = rest.indexOf(" ");
+      if (spaceIdx === -1) {
+        setStatus("[!] Usage: add <conn_num> <command>");
+        return;
+      }
+      const numStr = rest.slice(0, spaceIdx);
+      const cmdText = rest.slice(spaceIdx + 1).trim();
+      const idx = parseInt(numStr, 10) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= connections.length) {
+        setStatus(`[!] Invalid connection number. Type 1-${connections.length}`);
+        return;
+      }
+      if (!cmdText) {
+        setStatus("[!] Command cannot be empty");
+        return;
+      }
+      const conn = connections[idx];
+      setSnippetCommands((prev) => [...prev, { connId: conn.id, connName: conn.name, command: cmdText }]);
+      setStatus(`[ok] Added command "${cmdText}" for "${conn.name}" (${snippetCommands.length + 1} total)`);
+      return;
+    }
+
+    if (command === "snippets") {
+      setSnippets(loadSnippets());
+      setSnippetsView(true);
+      setStatus(null);
+      return;
+    }
+
+    if (command === "snippet-rm") {
+      const name = parts.slice(1).join(" ");
+      if (!name) {
+        setStatus("[!] Usage: snippet-rm <name>");
+        return;
+      }
+      const snip = getSnippetByName(name);
+      if (!snip) {
+        setStatus(`[!] Snippet "${name}" not found`);
+        return;
+      }
+      removeSnippet(snip.id);
+      setSnippets(loadSnippets());
+      setStatus(`[ok] Removed snippet "${name}"`);
+      return;
+    }
+
+    if (command === "run") {
+      const name = parts.slice(1).join(" ");
+      if (!name) {
+        setStatus("[!] Usage: run <snippet-name>");
+        return;
+      }
+      const snip = getSnippetByName(name);
+      if (!snip) {
+        setStatus(`[!] Snippet "${name}" not found`);
+        return;
+      }
+      if (!vault) {
+        setStatus("[!] Vault not unlocked");
+        return;
+      }
+      let executed = 0;
+      let skipped = 0;
+      for (const cmd of snip.commands) {
+        const conn = vault.getConnections().find((c) => c.id === cmd.connId);
+        if (!conn) {
+          skipped++;
+          continue;
+        }
+        onConnect(conn);
+        executed++;
+      }
+      setStatus(`[ok] Running snippet "${name}" — ${executed} connection(s) opened${skipped > 0 ? `, ${skipped} skipped (not found)` : ""}`);
+      return;
+    }
+  }, [view, connections, selectedIdx, vault, onBack, refreshList, refreshGroups, handleFormInput, handlePwInput, handleVaultSubmit, testConnection, onConnect, groups, snippets, recordingSnippet, snippetName, snippetCommands]);
 
   useInput((input, key) => {
     if (key.escape) {
@@ -648,6 +788,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
         setBundleData("");
         setExportedBundle(null);
         setGroupFormStep(0);
+        setSnippetsView(false);
         setStatus(null);
       } else {
         onBack();
@@ -971,13 +1112,87 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
             </Box>
           </StyledBox>
         )}
+
+        {snippetsView && !recordingSnippet && (
+          <StyledBox title="Command Snippets" focused padding={1} height={availH} overflow="hidden">
+            <Box flexDirection="column">
+              {snippets.length === 0 ? (
+                <Box flexDirection="column">
+                  <Text color={colors.textMuted}>{"  No snippets saved."}</Text>
+                  <Box marginTop={1}>
+                    <Text color={colors.purple} bold>{"  Type 'snippet <name>' to start recording"}</Text>
+                  </Box>
+                </Box>
+              ) : (
+                <Box flexDirection="column">
+                  <Text color={colors.textDim}>{"  Snippets:"}</Text>
+                  {snippets.map((s, i) => (
+                    <Box key={s.id} flexDirection="row">
+                      <Text color={colors.textDim}>{"  "}{i + 1}{"."}</Text>
+                      <Text color={colors.purpleBright}>{"  "}{s.name}</Text>
+                      <Text color={colors.textMuted}>{"  ("}{s.commands.length}{" commands)"}</Text>
+                    </Box>
+                  ))}
+                  <Box marginTop={1}>
+                    <Text color={colors.textDim}>{"  Commands: run <name> · snippet-rm <name> · snippet <name> · esc to return"}</Text>
+                  </Box>
+                </Box>
+              )}
+              {status && (
+                <Box marginTop={1}>
+                  <Text color={status.startsWith("[ok]") ? colors.green : status.startsWith("[!]") ? colors.red : status.startsWith("[recording]") ? colors.yellow : colors.textMuted}>
+                    {"  "}{status}
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          </StyledBox>
+        )}
+
+        {recordingSnippet && (
+          <StyledBox title={`Creating Snippet: ${snippetName}`} focused padding={1} height={availH} overflow="hidden">
+            <Box flexDirection="column">
+              <Text color={colors.yellow} bold>{"  Type 'add <conn_num> <command>' to add a command"}</Text>
+              <Text color={colors.textDim}>{"  Type 'done' to save or 'snippet-cancel' to abort"}</Text>
+              <Box marginTop={1} flexDirection="column">
+                <Text color={colors.textDim}>{"  Available connections:"}</Text>
+                {connections.map((conn, i) => (
+                  <Box key={conn.id} flexDirection="row">
+                    <Text color={colors.textDim}>{"    "}{i + 1}{"."}</Text>
+                    <Text color={colors.textMuted}>{" "}{CONNECTION_ICONS[conn.type]} {conn.name}</Text>
+                    <Text color={colors.textMuted}>{"  "}{conn.type} · {conn.host}</Text>
+                  </Box>
+                ))}
+              </Box>
+              {snippetCommands.length > 0 && (
+                <Box marginTop={1} flexDirection="column">
+                  <Text color={colors.textDim}>{"  Commands ("}{snippetCommands.length}{"):"}</Text>
+                  {snippetCommands.map((cmd, i) => (
+                    <Box key={i} flexDirection="row">
+                      <Text color={colors.textDim}>{"    "}{i + 1}{"."}</Text>
+                      <Text color={colors.textMuted}>{"  "}{cmd.connName}: </Text>
+                      <Text color={colors.text}>{cmd.command}</Text>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+              {status && (
+                <Box marginTop={1}>
+                  <Text color={status.startsWith("[ok]") ? colors.green : status.startsWith("[!]") ? colors.red : colors.textMuted}>
+                    {"  "}{status}
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          </StyledBox>
+        )}
       </Box>
 
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
           masked={isPasswordStep()}
-          placeholder={view === "unlock" ? (vaultMode === "confirm" ? "Confirm password" : "Master password") : view === "add" || view === "edit" ? getFormPlaceholder(formStep) : view === "changepw" ? getPwPlaceholder(pwStep) : view === "export" ? (exportedBundle ? "done - press esc to return" : "Encryption password (min 8 chars)") : view === "import" ? (bundleData ? "Decryption password" : "Paste bundle string") : view === "groups" ? (groupFormStep === 0 ? "group name or 'back'" : groupFormStep === 1 ? "number to toggle · 'done' to save" : "groups · group · group-add · group-rm · group-open · back") : "connect · add · edit · test · rm <n> · groups · changepw · export · import · back"}
+          placeholder={view === "unlock" ? (vaultMode === "confirm" ? "Confirm password" : "Master password") : view === "add" || view === "edit" ? getFormPlaceholder(formStep) : view === "changepw" ? getPwPlaceholder(pwStep) : view === "export" ? (exportedBundle ? "done - press esc to return" : "Encryption password (min 8 chars)") : view === "import" ? (bundleData ? "Decryption password" : "Paste bundle string") : view === "groups" ? (groupFormStep === 0 ? "group name or 'back'" : groupFormStep === 1 ? "number to toggle · 'done' to save" : "groups · group · group-add · group-rm · group-open · back") : recordingSnippet ? "snippet-save · snippet-cancel" : "connect · add · edit · test · rm <n> · groups · snippets · run <name> · changepw · export · import · back"}
         />
       </Box>
 
