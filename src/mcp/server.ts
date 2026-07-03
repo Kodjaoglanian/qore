@@ -9,6 +9,9 @@ import { discoverTools } from "./tools/discover.js";
 import { dockerTools } from "./tools/docker.js";
 import { databaseTools } from "./tools/database.js";
 import { systemTools } from "./tools/system.js";
+import { httpTools } from "./tools/http.js";
+import { listResources, readResource } from "./resources.js";
+import { prompts } from "./prompts.js";
 import { version } from "../../package.json";
 
 const PROTOCOL_VERSION = "2025-03-26";
@@ -19,7 +22,7 @@ export class McpServer {
 
   constructor() {
     this.registry = new ToolRegistry();
-    for (const tool of [...sshTools, ...discoverTools, ...dockerTools, ...databaseTools, ...systemTools]) {
+    for (const tool of [...sshTools, ...discoverTools, ...dockerTools, ...databaseTools, ...systemTools, ...httpTools]) {
       this.registry.register(tool);
     }
   }
@@ -111,10 +114,39 @@ export class McpServer {
         }
 
         case "resources/list":
-          return makeResult(req.id, { resources: [] });
+          return makeResult(req.id, { resources: await listResources() });
+
+        case "resources/read": {
+          const uri = req.params?.uri as string;
+          if (!uri) return makeError(req.id, INVALID_PARAMS, "Missing resource uri");
+          try {
+            const contents = await readResource(uri);
+            return makeResult(req.id, {
+              contents: [{ uri, mimeType: "application/json", text: contents }],
+            });
+          } catch (err) {
+            return makeError(req.id, INVALID_PARAMS, err instanceof Error ? err.message : String(err));
+          }
+        }
 
         case "prompts/list":
-          return makeResult(req.id, { prompts: [] });
+          return makeResult(req.id, {
+            prompts: prompts.map(p => ({
+              name: p.name,
+              description: p.description,
+              arguments: p.arguments,
+            })),
+          });
+
+        case "prompts/get": {
+          const name = req.params?.name as string;
+          const args = (req.params?.arguments as Record<string, string>) ?? {};
+          const prompt = prompts.find(p => p.name === name);
+          if (!prompt) return makeError(req.id, INVALID_PARAMS, `Prompt not found: ${name}`);
+          return makeResult(req.id, {
+            messages: prompt.getMessages(args),
+          });
+        }
 
         default:
           return makeError(req.id, METHOD_NOT_FOUND, `Method not found: ${req.method}`);
