@@ -64,6 +64,11 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 - **Multi-Connection Tabs**: Open multiple service connections simultaneously and switch between them with Ctrl+Tab or Ctrl+Arrow keys. All tabs stay mounted with state preserved.
 - **Multi-Session**: Open multiple sessions of the same connection (for example, two SSH sessions to the same server). Use the `new` command inside any service screen.
 - **SSH Toolkit**: File operations, service control, Docker management, SFTP transfer, process and network utilities, security audits, server snapshots, deploy scripts, and Docker Compose management.
+- **SSH Interactive Shell**: Open a full interactive bash terminal over SSH directly from Qore. Supports Ctrl+C, Ctrl+D, tab completion, and arrow keys.
+- **Connection Groups**: Organize connections into named groups (e.g. production, staging, dev) and open all connections in a group at once.
+- **Command Snippets**: Save sequences of commands as reusable snippets and execute them to open all referenced connections.
+- **Multi-Service Dashboard**: Consolidated status view of all vault connections with auto-refresh and quick connect.
+- **Health Check Dashboard**: Periodic health monitoring with latency sparklines, uptime percentage, and configurable check intervals.
 
 ### Developer Experience
 
@@ -159,6 +164,8 @@ Qore creates the following local directories on first run:
   storage/            # Local emulated S3 objects
   metadata.db         # SQLite metadata for local storage
   favorites.json      # Starred commands
+  snippets.json       # Saved command snippets/macros
+  health.json         # Health check history and config
   snapshots/          # SSH server state snapshots (JSON)
 ```
 
@@ -183,6 +190,8 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 |---------|-------------|
 | `discover` | Scan ports, Docker containers, daemons, system info, network, processes, and services |
 | `connections` | Manage saved service connections |
+| `dashboard` | Multi-service status overview (requires unlocked vault) |
+| `health` | Health checks with history & sparklines (requires unlocked vault) |
 | `vault` | Create or unlock the credential vault |
 | `help` | Show the full command reference |
 | `back` / `esc` | Return to the previous screen |
@@ -247,6 +256,35 @@ The discovery screen uses a sidebar layout with 9 sections. Press `1` through `9
 | `changepw` | Change vault master password |
 | `export` | Export connections as encrypted bundle |
 | `import` | Import connections from encrypted bundle |
+| `groups` | View connection groups |
+| `group <name>` | Create a new group |
+| `group-add <name>` | Add selected connection to group |
+| `group-rm <name>` | Remove a group |
+| `group-open <name>` | Open all connections in a group |
+| `snippet <name>` | Create a command snippet |
+| `snippets` | List saved snippets |
+| `run <name>` | Execute a saved snippet (opens all referenced connections) |
+| `snippet-rm <name>` | Remove a snippet |
+
+### Dashboard screen
+
+| Command | Description |
+|---------|-------------|
+| `connect <n>` | Connect to connection number n |
+| `refresh` | Re-check all connections |
+| `auto` | Toggle auto-refresh (10 second interval) |
+| `back` / `esc` | Return to welcome screen |
+
+### Health check screen
+
+| Command | Description |
+|---------|-------------|
+| `refresh` / `check` | Run health checks on all connections |
+| `monitor` | Toggle continuous monitoring |
+| `interval <s>` | Set check interval (5-3600 seconds) |
+| `clear` | Clear all health history |
+| `connect <n>` | Connect to connection number n |
+| `back` / `esc` | Return to welcome screen |
 
 ### Service screen (common commands)
 
@@ -316,6 +354,7 @@ The discovery screen uses a sidebar layout with 9 sections. Press `1` through `9
 
 | Command | Description |
 |---------|-------------|
+| `shell` | Open an interactive bash terminal over SSH (Ctrl+D to exit) |
 | `exec <command>` | Execute a shell command over SSH (interactive PTY) |
 | `sysinfo` | Show system information (uname, hostname, uptime, disk, memory) |
 | `disk` | Show disk usage (`df -h`) |
@@ -527,7 +566,7 @@ src/
       types.ts           # Connection types and labels
       socket-bridge.ts   # Unix socket server for MCP vault access
     connections/
-      manager.ts         # Connection manager factory
+      manager.ts         # Connection manager factory + QuickStatus
       redis.ts           # Redis RESP driver
       s3.ts              # S3-compatible REST driver
       postgres.ts        # PostgreSQL wire driver
@@ -535,6 +574,8 @@ src/
       mongo.ts           # MongoDB wire driver
       http.ts            # HTTP API manager (generic REST)
       ssh.ts             # SSH remote manager (ssh2)
+    snippets.ts          # Command snippet persistence
+    health.ts            # Health check history and sparklines
   mcp/
     index.ts             # MCP server entry point
     server.ts            # JSON-RPC 2.0 server (stdio transport)
@@ -558,7 +599,9 @@ src/
     theme.ts             # Color palette
     WelcomeScreen.tsx    # Initial screen
     DiscoverScreen.tsx   # Discovery results (sidebar layout)
-    ConnectionsScreen.tsx# Connection management
+    ConnectionsScreen.tsx# Connection management (groups, snippets)
+    DashboardScreen.tsx  # Multi-service status dashboard
+    HealthScreen.tsx     # Health check dashboard with sparklines
     ServiceScreen.tsx    # Service-specific console
     VaultScreen.tsx      # Vault unlock/creation
     HelpScreen.tsx       # Command reference
@@ -717,10 +760,14 @@ The CI pipeline handles the rest: building, changelog generation, and GitHub Rel
 - MCP vault bridge: Unix socket with 0600 permissions, credential isolation
 - MCP documentation: docs/mcp.md, config examples for Claude Desktop, Cursor, Windsurf
 - Git repository management: branch tree visualization, staging, committing, merging, rebasing, cherry-picking, blaming, tagging, remote management
+- SSH interactive shell: full bash terminal with Ctrl+D exit, tab completion, arrow keys
+- Connection groups: organize connections, batch open, group tags in list view
+- Command snippets: save and replay command sequences across connections
+- Multi-service dashboard: consolidated status overview with auto-refresh
+- Health check dashboard: periodic monitoring with sparklines, uptime %, configurable intervals
 
 ### Planned
 
-- Service health checks and monitoring dashboard
 - Local emulated S3 and Pub/Sub providers
 - Multi-architecture CI matrix for ARM native builds
 - Expanded test coverage (connection managers, SSH commands, UI components)

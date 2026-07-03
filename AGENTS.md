@@ -55,25 +55,29 @@ Manages encrypted credentials for all external connections.
 
 Protocol-level integrations with real services. No mocks, no vendor lock-in.
 
-- `manager.ts`: Common interfaces (`ConnectionManager` with optional `getLogs`, `DatabaseManager`, `StorageManager`) + factory.
+- `manager.ts`: Common interfaces (`ConnectionManager` with optional `getLogs`, `quickStatus`, `DatabaseManager`, `StorageManager`) + factory. `QuickStatus` provides lightweight online/offline/latency checks for dashboard and health screens.
 - `redis.ts`: RESP protocol via `Bun.connect` — PING, INFO, KEYS, GET/SET, DEL, FLUSHDB, SLOWLOG. Works with Redis, Valkey, DragonflyDB, KeyDB.
 - `s3.ts`: S3 REST API with AWS Signature V4 signing via `fetch`. Works with MinIO, RustFS, SeaweedFS, Cloudflare R2, AWS S3.
 - `postgres.ts`: PostgreSQL wire protocol via `pg` driver. Works with PostgreSQL, CockroachDB, YugabyteDB.
 - `mysql.ts`: MySQL driver via `mysql2/promise`. Works with MySQL, MariaDB.
 - `mongo.ts`: MongoDB wire protocol via `mongodb` driver. Works with MongoDB, FerretDB.
 - `http.ts`: Generic HTTP/REST client via `fetch`. GET, POST, PUT, PATCH, DELETE.
-- `ssh.ts`: SSH remote manager via `ssh2`. Exec commands, SFTP upload/download, journalctl/syslog logs, Docker container management, systemd service control, PTY for interactive commands (edit, deploy, tail -f), security audit, server snapshots, Docker Compose management, git-status, firewall (UFW), ports scanning.
+- `ssh.ts`: SSH remote manager via `ssh2`. Exec commands, SFTP upload/download, journalctl/syslog logs, Docker container management, systemd service control, PTY for interactive commands (edit, deploy, tail -f, interactive shell), security audit, server snapshots, Docker Compose management, git-status, firewall (UFW), ports scanning. SSH Interactive Shell via `shell` command opens a full bash terminal with Ctrl+D exit.
 - `git.ts`: Git repository manager via local `git` CLI (`Bun.spawn`). Status, diff, branches, log graph, stage/unstage, commit, checkout, createBranch, deleteBranch, merge, rebase, fetch, pull, push, cherry-pick, revert, amend, blame, tags, remotes, addRemote, exec.
 
 ### 3. TUI & Render Pipeline (`src/ui/`)
 
 - The UI must match the `torlink` visual identity: clean box-drawing characters (`┌ ┐ └ ┘ ─ │`), minimalist text-based tabs, and no bloated layouts.
 - Colors are strictly defined: Dark Backgrounds, Electric Purple highlights (`#A370F7`) for active focus/borders, and Muted Blue-Grays (`#5C5B66`) for background context/shortcuts.
-- **Screens**: Welcome -> Discover (Docker/ports/daemons) -> Vault (unlock/create) -> Connections (list/add/test) -> Service (type-specific management: Redis/S3/Postgres/MySQL/Mongo/HTTP/SSH/Git).
+- **Screens**: Welcome -> Discover (Docker/ports/daemons) -> Vault (unlock/create) -> Connections (list/add/test/groups/snippets) -> Dashboard (multi-service status) -> Health (health checks with sparklines) -> Service (type-specific management: Redis/S3/Postgres/MySQL/Mongo/HTTP/SSH/Git).
 - **Input Model**: InputBar is always focused. Commands are typed + Enter. Arrow keys navigate command list when input is empty, or navigate command history when input has text. Tab cycles autocomplete. No single-key shortcuts that conflict with typing.
 - **Multi-Connection**: Multiple service connections can be open simultaneously as tabs. Switch with Ctrl+Tab / Ctrl+Arrows. All ServiceScreen instances are rendered simultaneously — inactive tabs use `display="none"` and `focused={false}` to preserve state (connection, history, items) without remounting. Only the active tab captures keyboard input via `useInput({ isActive: focused })`.
 - **Multi-Session**: Multiple sessions of the same connection are allowed. Each tab is identified by a unique `sessionId` (not `conn.id`), so connecting to the same server twice opens two independent tabs. Use `new` command inside ServiceScreen to open a duplicate session. The ConnectionsScreen shows `[open xN]` when N sessions of the same connection are active. `handleConnect` in App.tsx always creates a new `ActiveSession` — it never deduplicates.
 - **Favorites**: Starred commands stored in `~/.qore/favorites.json`. Use `star <cmd>` / `unstar <cmd>` / `favorites`.
+- **Connection Groups**: Organize connections into named groups. Stored in vault as `ConnectionGroup[]`. Commands: `groups`, `group <name>`, `group-add <name>`, `group-rm <name>`, `group-open <name>`. Group tags shown next to connection names in list view.
+- **Command Snippets**: Reusable command sequences stored in `~/.qore/snippets.json`. Each snippet contains `SnippetCommand[]` with `connId`, `connName`, and `command`. Create with `snippet <name>`, add commands with `add <conn_num> <command>`, save with `done`, run with `run <name>`.
+- **Multi-Service Dashboard**: `DashboardScreen` shows all vault connections with online/offline status, latency, and auto-refresh (10s). Uses `quickStatus()` from managers or falls back to `testConnection()`. Accessible via `dashboard` command.
+- **Health Check Dashboard**: `HealthScreen` with periodic monitoring, latency sparklines (unicode block chars), uptime percentage, configurable interval (5-3600s). History persisted to `~/.qore/health.json` (max 50 per connection). Commands: `refresh`, `monitor`, `interval <s>`, `clear`.
 - **Close vs Back**: `back` returns to Connections screen without closing the tab (connection stays active). `close` disconnects and removes the tab entirely.
 - **Snapshots**: SSH server state snapshots saved to `~/.qore/snapshots/` as JSON files. Compare with `diff <s1> <s2>`.
 
@@ -162,10 +166,14 @@ bun run release:minor
 - [x] Multi-session: multiple sessions of same connection (unique sessionId per tab, `new` command).
 - [x] CI/CD: 3-workflow pipeline (ci.yml, build.yml, release.yml) with cache, smoke tests, pinned bun.
 - [x] CI/CD: automated release scripts (`release:patch`, `release:minor`).
+- [x] SSH interactive shell: full bash terminal with `shell` command, Ctrl+D exit, tab completion, arrow keys.
+- [x] Connection groups: organize connections, batch open, group tags in list view.
+- [x] Command snippets: save and replay command sequences across connections.
+- [x] Multi-service dashboard: consolidated status overview with auto-refresh.
+- [x] Health check dashboard: periodic monitoring with sparklines, uptime %, configurable intervals.
 
 ### Next Features
 
-- [ ] Service health checks and monitoring dashboard.
 - [ ] Local emulated S3 and Pub/Sub providers.
 - [ ] Multi-architecture CI matrix for ARM native builds.
 - [ ] Expand test coverage (connection managers, SSH commands, UI components).

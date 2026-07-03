@@ -30,6 +30,8 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
           <Box flexDirection="column">
             <CmdRow cmd="discover" desc="scan ports, Docker & daemons" />
             <CmdRow cmd="connections" desc="manage saved connections" />
+            <CmdRow cmd="dashboard" desc="multi-service status overview" />
+            <CmdRow cmd="health" desc="health checks with history & sparklines" />
             <CmdRow cmd="vault" desc="unlock / create credential vault" />
             <CmdRow cmd="help" desc="show this help screen" />
             <CmdRow cmd="back" desc="go back to welcome" />
@@ -56,6 +58,15 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
             <CmdRow cmd="connect <n>" desc="connect to saved connection #n" />
             <CmdRow cmd="test <n>" desc="test connection #n" />
             <CmdRow cmd="rm <n>" desc="remove connection #n" />
+            <CmdRow cmd="groups" desc="view connection groups" />
+            <CmdRow cmd="group <name>" desc="create a new group" />
+            <CmdRow cmd="group-add <name>" desc="add selected conn to group" />
+            <CmdRow cmd="group-rm <name>" desc="remove a group" />
+            <CmdRow cmd="group-open <name>" desc="open all conns in group" />
+            <CmdRow cmd="snippet <name>" desc="create a command snippet" />
+            <CmdRow cmd="snippets" desc="list saved snippets" />
+            <CmdRow cmd="run <name>" desc="execute a saved snippet" />
+            <CmdRow cmd="snippet-rm <name>" desc="remove a snippet" />
           </Box>
         </StyledBox>
 
@@ -122,6 +133,16 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
             <CmdRow cmd="compose <cmd>" desc="docker compose operations" />
             <CmdRow cmd="security-audit" desc="run security audit" />
             <CmdRow cmd="snapshot" desc="capture server state" />
+          </Box>
+        </StyledBox>
+
+        <StyledBox title="Dashboard & Health" focused={false} padding={1} marginBottom={1}>
+          <Box flexDirection="column">
+            <CmdRow cmd="refresh" desc="re-check all connections" />
+            <CmdRow cmd="auto" desc="toggle auto-refresh (dashboard)" />
+            <CmdRow cmd="monitor" desc="toggle monitoring (health)" />
+            <CmdRow cmd="interval <s>" desc="set check interval (health)" />
+            <CmdRow cmd="clear" desc="clear health history" />
           </Box>
         </StyledBox>
 
