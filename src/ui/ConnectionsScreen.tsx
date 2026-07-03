@@ -132,7 +132,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
     const isEdit = view === "edit";
 
     if (formStep === 0) {
-      const validTypes: ConnectionType[] = ["redis", "postgres", "mysql", "mongo", "s3", "http", "ssh"];
+      const validTypes: ConnectionType[] = ["redis", "postgres", "mysql", "mongo", "s3", "http", "ssh", "git"];
       if (validTypes.includes(lower as ConnectionType)) {
         const type = lower as ConnectionType;
         setFormData((d) => ({ ...d, type, port: DEFAULT_PORTS[type] }));
@@ -159,6 +159,11 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
     if (formStep === 2) {
       const host = value || formData.host || "localhost";
       setFormData((d) => ({ ...d, host }));
+      if (formData.type === "git") {
+        setFormStep(7);
+        setStatus(`[ok] Path: ${host} · Use TLS? (yes/no):`);
+        return;
+      }
       setFormStep(3);
       setStatus(`[ok] Host: ${host} · Enter port (default: ${formData.port}):`);
       return;
@@ -773,7 +778,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
 
 function getFormPlaceholder(step: number): string {
   switch (step) {
-    case 0: return "redis · postgres · mysql · mongo · s3 · http · ssh";
+    case 0: return "redis · postgres · mysql · mongo · s3 · http · ssh · git";
     case 1: return "Connection name (e.g. My Redis)";
     case 2: return "Host (default: localhost)";
     case 3: return "Port (default shown above)";

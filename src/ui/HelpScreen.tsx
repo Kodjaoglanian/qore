@@ -93,6 +93,25 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
           </Box>
         </StyledBox>
 
+        <StyledBox title="Git" focused={false} padding={1} marginBottom={1}>
+          <Box flexDirection="column">
+            <CmdRow cmd="status" desc="show staged, unstaged, untracked" />
+            <CmdRow cmd="diff [--staged]" desc="show working tree or staged diff" />
+            <CmdRow cmd="log" desc="commit graph with branch tree" />
+            <CmdRow cmd="branches" desc="list all branches with details" />
+            <CmdRow cmd="checkout <b>" desc="switch to branch" />
+            <CmdRow cmd="branch <n>" desc="create and switch to branch" />
+            <CmdRow cmd="stage [f]" desc="stage files or all changes" />
+            <CmdRow cmd="commit <msg>" desc="create a commit" />
+            <CmdRow cmd="merge <b>" desc="merge branch into current" />
+            <CmdRow cmd="push [r] [b]" desc="push to remote" />
+            <CmdRow cmd="pull [r] [b]" desc="pull from remote" />
+            <CmdRow cmd="blame <f>" desc="show blame for file" />
+            <CmdRow cmd="tags" desc="list tags" />
+            <CmdRow cmd="exec <args>" desc="run raw git command" />
+          </Box>
+        </StyledBox>
+
         <StyledBox title="Navigation Keys" focused={false} padding={1}>
           <Box flexDirection="column">
             <KeyRow keyLabel="Up/Dn" desc="select item" />

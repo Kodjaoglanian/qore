@@ -6,6 +6,7 @@ import { MysqlManager } from "./mysql.js";
 import { MongoManager } from "./mongo.js";
 import { HttpManager } from "./http.js";
 import { SshManager } from "./ssh.js";
+import { GitManager } from "./git.js";
 
 export interface ConnectionManager {
   testConnection(config: ConnectionConfig): Promise<boolean>;
@@ -63,6 +64,7 @@ export function getManager(type: ConnectionType): ConnectionManager | null {
     case "mongo": return new MongoManager();
     case "http": return new HttpManager();
     case "ssh": return new SshManager();
+    case "git": return new GitManager();
     default: return null;
   }
 }
