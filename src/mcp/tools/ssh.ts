@@ -70,7 +70,8 @@ export const sshTools: ToolDef[] = [
       const config = await getConnection(args.connection as string);
       const mgr = new SshManager();
       const info = await mgr.getInfo(config);
-      return `Connection to ${config.host}:${config.port} successful.\n${info}`;
+      const infoStr = Object.entries(info).map(([k, v]) => `${k}: ${v}`).join("\n");
+      return `Connection to ${config.host}:${config.port} successful.\n${infoStr}`;
     },
   },
   {
@@ -125,7 +126,7 @@ export const sshTools: ToolDef[] = [
       const config = await getConnection(args.connection as string);
       const mgr = new SshManager();
       const info = await mgr.getInfo(config);
-      return info;
+      return Object.entries(info).map(([k, v]) => `${k}: ${v}`).join("\n");
     },
   },
 ];
