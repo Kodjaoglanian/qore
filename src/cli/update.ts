@@ -164,6 +164,7 @@ function showHelp(): void {
 
   Usage:
     qore              Start the TUI
+    qore mcp          Start the MCP server (stdio transport)
     qore update       Check and download the latest version
     qore version      Show current version
     qore help         Show this help message
@@ -176,6 +177,8 @@ export function handleCliArgs(args: string[]): Promise<void> | null {
   const cmd = args[0].toLowerCase();
 
   switch (cmd) {
+    case "mcp":
+      return import("../mcp/index.js").then(m => m.runMcpServer());
     case "update":
       return doUpdate();
     case "version":

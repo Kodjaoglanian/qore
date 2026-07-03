@@ -11,6 +11,7 @@ import { ServiceScreen } from "./ServiceScreen.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { Orchestrator } from "../core/orchestrator.js";
 import { Vault } from "../core/vault/vault.js";
+import { SocketBridge } from "../core/vault/socket-bridge.js";
 import type { ConnectionConfig } from "../core/vault/types.js";
 import { CONNECTION_ICONS } from "../core/vault/types.js";
 import type { ProbeResult } from "../core/types.js";
@@ -32,6 +33,7 @@ export function App() {
   const [dockerStatus, setDockerStatus] = useState<"connected" | "disconnected" | "scanning">("disconnected");
   const [orchestrator] = useState(() => new Orchestrator());
   const [vault, setVault] = useState<Vault | null>(null);
+  const [socketBridge, setSocketBridge] = useState<SocketBridge | null>(null);
   const [activeConns, setActiveConns] = useState<ActiveSession[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
   const sessionCounter = useRef(0);
@@ -86,6 +88,7 @@ export function App() {
           break;
         case "quit":
         case "exit":
+          if (socketBridge) socketBridge.stop();
           if (vault) vault.lock();
           exit();
           process.exit(0);
@@ -96,11 +99,15 @@ export function App() {
           break;
       }
     },
-    [runDiscovery, exit, vault, screen]
+    [runDiscovery, exit, vault, socketBridge, screen]
   );
 
   const handleVaultUnlock = useCallback((v: Vault) => {
     setVault(v);
+    const bridge = new SocketBridge(v);
+    if (bridge.start()) {
+      setSocketBridge(bridge);
+    }
   }, []);
 
   const handleCloseConn = useCallback(() => {
@@ -131,6 +138,7 @@ export function App() {
       setScreen("welcome");
     }
     if (key.ctrl && input === "c") {
+      if (socketBridge) socketBridge.stop();
       if (vault) vault.lock();
       exit();
     }
