@@ -15,6 +15,7 @@ import type { S3Manager } from "../core/connections/s3.js";
 import type { DatabaseManager, StorageManager, QueryResult, ObjectInfo } from "../core/connections/manager.js";
 import type { HttpManager } from "../core/connections/http.js";
 import type { SshManager, PtyHandle } from "../core/connections/ssh.js";
+import type { GitManager, GitFileStatus, GitBranchInfo, GitLogEntry, GitDiffResult } from "../core/connections/git.js";
 import { TerminalOverlay } from "./components/TerminalOverlay.js";
 import { loadFavorites, addFavorite, removeFavorite } from "../core/favorites.js";
 
@@ -54,6 +55,9 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = t
   const [ptyTitle, setPtyTitle] = useState("");
   const [cmdHistory, setCmdHistory] = useState<string[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
+  const [gitStatus, setGitStatus] = useState<GitFileStatus[]>([]);
+  const [gitBranches, setGitBranches] = useState<GitBranchInfo[]>([]);
+  const [gitLog, setGitLog] = useState<GitLogEntry[]>([]);
 
   const availH = Math.max(8, effectiveHeight - HEADER - FOOTER);
   const listH = Math.floor(availH * 0.55);
@@ -118,6 +122,31 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = t
           "logs [service]", "logs docker <container>",
           "reboot yes", "shutdown yes", "close", "new",
         ]);
+      } else if (conn.type === "git") {
+        const git = manager as GitManager;
+        const branches = await git.getBranches(conn);
+        const statusFiles = await git.getStatus(conn);
+        const log = await git.getLog(conn, { limit: 20 });
+        const gitItems: string[] = [];
+        for (const b of branches.filter(b => !b.isRemote)) {
+          const marker = b.isCurrent ? "* " : "  ";
+          const ahead = b.ahead > 0 ? ` +${b.ahead}` : "";
+          const behind = b.behind > 0 ? ` -${b.behind}` : "";
+          gitItems.push(`${marker}${b.name}${ahead}${behind} (${b.commitCount} commits)`);
+        }
+        gitItems.push("--- Commands ---");
+        gitItems.push("status", "diff", "diff --staged", "log", "branches", "graph");
+        gitItems.push("checkout <branch>", "branch <name>", "branch -d <name>");
+        gitItems.push("stage [files...]", "unstage [files...]", "commit <message>");
+        gitItems.push("merge <branch>", "rebase <branch>", "amend [message]");
+        gitItems.push("fetch [remote]", "pull [remote] [branch]", "push [remote] [branch]");
+        gitItems.push("cherry-pick <hash>", "revert <hash>", "blame <file>");
+        gitItems.push("tags", "tag <name> [message]", "remotes", "remote-add <name> <url>");
+        gitItems.push("exec <git args...>", "info", "refresh", "back", "close", "new");
+        setItems(gitItems);
+        setGitStatus(statusFiles);
+        setGitBranches(branches);
+        setGitLog(log);
       } else {
         const db = manager as DatabaseManager;
         try {
@@ -1049,6 +1078,258 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = t
       }
     }
 
+    // Git commands
+    if (conn.type === "git") {
+      const git = getManager(conn.type) as GitManager;
+
+      if (command === "status") {
+        const files = await git.getStatus(conn);
+        setGitStatus(files);
+        const lines: string[] = [];
+        const staged = files.filter(f => f.index !== " " && f.index !== "?");
+        const unstaged = files.filter(f => f.working !== " " && f.working !== "?");
+        const untracked = files.filter(f => f.index === "?" || f.working === "?");
+        if (staged.length > 0) {
+          lines.push(`  Staged (${staged.length}):`);
+          for (const f of staged) lines.push(`    ${f.index}  ${f.path}`);
+        }
+        if (unstaged.length > 0) {
+          lines.push(`  Unstaged (${unstaged.length}):`);
+          for (const f of unstaged) lines.push(`    ${f.working}  ${f.path}`);
+        }
+        if (untracked.length > 0) {
+          lines.push(`  Untracked (${untracked.length}):`);
+          for (const f of untracked) lines.push(`    ??  ${f.path}`);
+        }
+        if (files.length === 0) lines.push("  Working tree clean");
+        setOverlayContent(lines);
+        setOverlay("git status");
+        setOverlayScroll(0);
+        return;
+      }
+
+      if (command === "diff") {
+        const isStaged = parts.includes("--staged");
+        const branch1 = rawParts.find(p => !p.startsWith("-") && p !== "diff" && p !== "--staged");
+        const branch2Idx = rawParts.indexOf(branch1 || "") + 1;
+        const branch2 = rawParts[branch2Idx];
+        try {
+          const diff = await git.getDiff(conn, {
+            staged: isStaged,
+            branch1: branch1 && branch2 ? branch1 : undefined,
+            branch2: branch1 && branch2 ? branch2 : undefined,
+          });
+          const lines = formatGitDiff(diff);
+          setOverlayContent(lines.length > 0 ? lines : ["  No changes"]);
+          setOverlay(branch1 && branch2 ? `diff ${branch1}..${branch2}` : isStaged ? "diff --staged" : "diff");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if (command === "log" || command === "graph") {
+        const log = await git.getLog(conn, { limit: 50 });
+        setGitLog(log);
+        const lines = formatGitLog(log);
+        setOverlayContent(lines);
+        setOverlay("git log --graph");
+        setOverlayScroll(0);
+        return;
+      }
+
+      if (command === "branches") {
+        const branches = await git.getBranches(conn);
+        setGitBranches(branches);
+        const lines: string[] = [];
+        for (const b of branches) {
+          const marker = b.isCurrent ? "* " : "  ";
+          const remote = b.isRemote ? " (remote)" : "";
+          const ahead = b.ahead > 0 ? ` +${b.ahead}` : "";
+          const behind = b.behind > 0 ? ` -${b.behind}` : "";
+          const upstream = b.upstream ? ` -> ${b.upstream}` : "";
+          lines.push(`  ${marker}${b.name}${remote}${ahead}${behind}${upstream}  ${b.lastCommit}  ${b.lastCommitDate}  (${b.commitCount})`);
+        }
+        setOverlayContent(lines.length > 0 ? lines : ["  No branches"]);
+        setOverlay("branches");
+        setOverlayScroll(0);
+        return;
+      }
+
+      if (command === "checkout" && parts[1]) {
+        const result = await git.checkout(conn, rawParts[1]);
+        setStatus(result.exitCode === 0 ? `[ok] Switched to ${rawParts[1]}` : `[!] ${result.stderr.trim()}`);
+        loadInitial();
+        return;
+      }
+
+      if (command === "branch") {
+        if (parts[1] === "-d" && parts[2]) {
+          const result = await git.deleteBranch(conn, rawParts[2]);
+          setStatus(result.exitCode === 0 ? `[ok] Deleted branch ${rawParts[2]}` : `[!] ${result.stderr.trim()}`);
+        } else if (parts[1] && parts[1] !== "-d") {
+          const result = await git.createBranch(conn, rawParts[1]);
+          setStatus(result.exitCode === 0 ? `[ok] Created and switched to ${rawParts[1]}` : `[!] ${result.stderr.trim()}`);
+        } else {
+          setStatus("[!] Usage: branch <name> | branch -d <name>");
+        }
+        loadInitial();
+        return;
+      }
+
+      if (command === "stage" || command === "add") {
+        const files = parts.slice(1).length > 0 ? parts.slice(1) : undefined;
+        const result = await git.stage(conn, files);
+        setStatus(result.exitCode === 0 ? `[ok] Staged ${files ? files.join(", ") : "all"}` : `[!] ${result.stderr.trim()}`);
+        const statusFiles = await git.getStatus(conn);
+        setGitStatus(statusFiles);
+        return;
+      }
+
+      if (command === "unstage" || command === "reset") {
+        const files = parts.slice(1).length > 0 ? parts.slice(1) : undefined;
+        const result = await git.unstage(conn, files);
+        setStatus(result.exitCode === 0 ? `[ok] Unstaged ${files ? files.join(", ") : "all"}` : `[!] ${result.stderr.trim()}`);
+        const statusFiles = await git.getStatus(conn);
+        setGitStatus(statusFiles);
+        return;
+      }
+
+      if (command === "commit" && parts[1]) {
+        const msg = trimmed.slice(trimmed.indexOf(" ") + 1);
+        const result = await git.commit(conn, msg);
+        setStatus(result.exitCode === 0 ? `[ok] Committed: ${msg}` : `[!] ${result.stderr.trim()}`);
+        loadInitial();
+        return;
+      }
+
+      if (command === "amend") {
+        const msg = parts[1] ? trimmed.slice(trimmed.indexOf(" ") + 1) : undefined;
+        const result = await git.amend(conn, msg);
+        setStatus(result.exitCode === 0 ? `[ok] Amended` : `[!] ${result.stderr.trim()}`);
+        loadInitial();
+        return;
+      }
+
+      if (command === "merge" && parts[1]) {
+        const result = await git.merge(conn, rawParts[1]);
+        setStatus(result.exitCode === 0 ? `[ok] Merged ${rawParts[1]}` : `[!] ${result.stderr.trim()}`);
+        loadInitial();
+        return;
+      }
+
+      if (command === "rebase" && parts[1]) {
+        const result = await git.rebase(conn, rawParts[1]);
+        setStatus(result.exitCode === 0 ? `[ok] Rebased onto ${rawParts[1]}` : `[!] ${result.stderr.trim()}`);
+        loadInitial();
+        return;
+      }
+
+      if (command === "fetch") {
+        const remote = parts[1];
+        const result = await git.fetch(conn, remote);
+        setStatus(result.exitCode === 0 ? `[ok] Fetched${remote ? " from " + remote : ""}` : `[!] ${result.stderr.trim()}`);
+        loadInitial();
+        return;
+      }
+
+      if (command === "pull") {
+        const remote = parts[1];
+        const branch = parts[2];
+        const result = await git.pull(conn, remote, branch);
+        setStatus(result.exitCode === 0 ? `[ok] Pulled` : `[!] ${result.stderr.trim()}`);
+        loadInitial();
+        return;
+      }
+
+      if (command === "push") {
+        const remote = parts[1];
+        const branch = parts[2];
+        const result = await git.push(conn, remote, branch);
+        setStatus(result.exitCode === 0 ? `[ok] Pushed` : `[!] ${result.stderr.trim()}`);
+        loadInitial();
+        return;
+      }
+
+      if (command === "cherry-pick" && parts[1]) {
+        const result = await git.cherryPick(conn, rawParts[1]);
+        setStatus(result.exitCode === 0 ? `[ok] Cherry-picked ${rawParts[1]}` : `[!] ${result.stderr.trim()}`);
+        loadInitial();
+        return;
+      }
+
+      if (command === "revert" && parts[1]) {
+        const result = await git.revert(conn, rawParts[1]);
+        setStatus(result.exitCode === 0 ? `[ok] Reverted ${rawParts[1]}` : `[!] ${result.stderr.trim()}`);
+        loadInitial();
+        return;
+      }
+
+      if (command === "blame" && parts[1]) {
+        try {
+          const lines = await git.blame(conn, rawParts[1]);
+          const formatted: string[] = [];
+          for (const l of lines.slice(0, 100)) {
+            formatted.push(`  ${l.hash.substring(0, 7)}  ${l.author.padEnd(15).substring(0, 15)}  ${l.lineNumber.toString().padStart(4)}  ${l.content}`);
+          }
+          setOverlayContent(formatted.length > 0 ? formatted : ["  No data"]);
+          setOverlay(`blame ${rawParts[1]}`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if (command === "tags") {
+        const tags = await git.getTags(conn);
+        const lines = tags.map(t => `  ${t.name}  ${t.hash}  ${t.date}  ${t.message}`);
+        setOverlayContent(lines.length > 0 ? lines : ["  No tags"]);
+        setOverlay("tags");
+        setOverlayScroll(0);
+        return;
+      }
+
+      if (command === "tag" && parts[1]) {
+        const msg = parts[2] ? trimmed.slice(trimmed.indexOf(parts[1]) + parts[1].length).trim() : undefined;
+        const result = await git.createTag(conn, rawParts[1], msg);
+        setStatus(result.exitCode === 0 ? `[ok] Tagged ${rawParts[1]}` : `[!] ${result.stderr.trim()}`);
+        return;
+      }
+
+      if (command === "remotes") {
+        const remotes = await git.getRemotes(conn);
+        const lines = remotes.map(r => `  ${r.name}  ${r.url}  (${r.type})`);
+        setOverlayContent(lines.length > 0 ? lines : ["  No remotes"]);
+        setOverlay("remotes");
+        setOverlayScroll(0);
+        return;
+      }
+
+      if (command === "remote-add" && parts[1] && parts[2]) {
+        const result = await git.addRemote(conn, rawParts[1], rawParts[2]);
+        setStatus(result.exitCode === 0 ? `[ok] Added remote ${rawParts[1]}` : `[!] ${result.stderr.trim()}`);
+        return;
+      }
+
+      if (command === "exec") {
+        const gitArgs = rawParts.slice(1);
+        if (gitArgs.length === 0) {
+          setStatus("[!] Usage: exec <git args...>");
+          return;
+        }
+        const result = await git.exec(conn, gitArgs);
+        const lines: string[] = [];
+        if (result.stdout) for (const line of result.stdout.split("\n").slice(0, 100)) lines.push(`  ${line}`);
+        if (result.stderr) for (const line of result.stderr.split("\n").slice(0, 50)) lines.push(`  [stderr] ${line}`);
+        setOverlayContent(lines.length > 0 ? lines : [`  exit: ${result.exitCode}`]);
+        setOverlay(`git ${gitArgs.join(" ")}`);
+        setOverlayScroll(0);
+        return;
+      }
+    }
+
     // Database commands (postgres, mongo, mysql)
     if (conn.type === "postgres" || conn.type === "mysql" || conn.type === "mongo") {
       const db = getManager(conn.type) as DatabaseManager;
@@ -1302,7 +1583,7 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = t
   const maxScroll = Math.max(0, items.length - maxItems);
   const clampedScroll = Math.min(scrollOffset, maxScroll);
   const visibleItems = items.slice(clampedScroll, clampedScroll + maxItems);
-  const itemLabel = conn.type === "s3" ? "Buckets" : conn.type === "redis" ? "Keys" : conn.type === "http" ? "Endpoints" : conn.type === "ssh" ? "Commands" : "Databases";
+  const itemLabel = conn.type === "s3" ? "Buckets" : conn.type === "redis" ? "Keys" : conn.type === "http" ? "Endpoints" : conn.type === "ssh" ? "Commands" : conn.type === "git" ? "Branches & Commands" : "Databases";
 
   const overlayLines = overlayContent.slice(overlayScroll, overlayScroll + Math.max(1, availH - BOX_OVERHEAD));
 
@@ -1478,6 +1759,7 @@ function getPlaceholder(type: string): string {
     case "mongo": return "tables <db> · desc <db> <coll> · count <db> <coll> · sample <db> <coll> · size <db> · indexes <db> <coll> · views <db> · funcs <db> · conns · queries · query <db> <json> · export <db> <coll> · explain <db> <json> · slow-queries · logs · back · close · new · quit";
     case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · logs · refresh · back · close · new · quit";
     case "ssh": return "exec <cmd> · ports · firewall · top · netstat · tail <f> · edit <f> · security-audit · snapshot · diff <s1> <s2> · deploy <script> · git-status · compose <up|down|ps|logs> · ls · cat · find · services · docker ps · docker logs · users · cron · pkgs · kill · ping · upload/download · logs · reboot yes · back · close · new · quit";
+    case "git": return "status · diff [--staged] · log · branches · checkout <b> · branch <n> · merge <b> · rebase <b> · stage [f] · unstage [f] · commit <msg> · amend · fetch · pull · push · cherry-pick <h> · revert <h> · blame <f> · tags · tag <n> · remotes · exec <args> · info · refresh · back · close · new · quit";
     default: return "info · refresh · back · close · new · quit";
   }
 }
@@ -1546,6 +1828,32 @@ function formatHttpResponse(resp: { status: number; headers: Record<string, stri
     }
   } else {
     lines.push("  (no body)");
+  }
+  return lines;
+}
+
+function formatGitDiff(diff: GitDiffResult): string[] {
+  const lines: string[] = [];
+  for (const file of diff.files) {
+    lines.push(`  ${file.path}  (+${file.additions} -${file.deletions})`);
+    for (const hunk of file.hunks) {
+      lines.push(`  ${hunk.header}`);
+      for (const line of hunk.lines) {
+        const prefix = line.type === "add" ? "+" : line.type === "del" ? "-" : " ";
+        lines.push(`  ${prefix} ${line.content}`);
+      }
+    }
+    lines.push("");
+  }
+  return lines;
+}
+
+function formatGitLog(log: GitLogEntry[]): string[] {
+  const lines: string[] = [];
+  for (const entry of log) {
+    const refs = entry.refs ? ` (${entry.refs})` : "";
+    lines.push(`  ${entry.graph} ${entry.shortHash}  ${entry.message}${refs}`);
+    lines.push(`         ${entry.author}  ${entry.date}`);
   }
   return lines;
 }

@@ -19,7 +19,7 @@ export function WelcomeScreen({ onCommand, vaultUnlocked }: WelcomeScreenProps) 
 
   const commands = [
     { cmd: "discover", desc: "scan ports, Docker & daemons", color: colors.cyan },
-    { cmd: "connections", desc: "vault & manage Redis, Postgres, MongoDB, S3", color: colors.purple },
+    { cmd: "connections", desc: "vault & manage Redis, Postgres, MongoDB, S3, Git", color: colors.purple },
     { cmd: "help", desc: "show all commands & shortcuts", color: colors.blue },
     { cmd: "quit", desc: "exit Qore", color: colors.red },
   ];
