@@ -6,6 +6,9 @@ import {
 } from "./protocol.js";
 import { sshTools } from "./tools/ssh.js";
 import { discoverTools } from "./tools/discover.js";
+import { dockerTools } from "./tools/docker.js";
+import { databaseTools } from "./tools/database.js";
+import { systemTools } from "./tools/system.js";
 import { version } from "../../package.json";
 
 const PROTOCOL_VERSION = "2025-03-26";
@@ -16,7 +19,7 @@ export class McpServer {
 
   constructor() {
     this.registry = new ToolRegistry();
-    for (const tool of [...sshTools, ...discoverTools]) {
+    for (const tool of [...sshTools, ...discoverTools, ...dockerTools, ...databaseTools, ...systemTools]) {
       this.registry.register(tool);
     }
   }
