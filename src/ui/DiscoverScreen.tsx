@@ -13,6 +13,8 @@ import {
   removeImage, pruneImages,
 } from "../core/probe/docker.js";
 import { formatBytes } from "../core/probe/system.js";
+import { killProcess } from "../core/probe/processes.js";
+import { controlService, getServiceLogs } from "../core/probe/services.js";
 import type { ProbeResult } from "../core/types.js";
 
 interface DiscoverScreenProps {
@@ -22,10 +24,10 @@ interface DiscoverScreenProps {
   onRefresh: () => void;
 }
 
-type Section = "ports" | "containers" | "images" | "daemons" | "system" | "network";
+type Section = "ports" | "containers" | "images" | "daemons" | "system" | "network" | "processes" | "services";
 type Overlay = null | "logs" | "inspect";
 
-const SECTION_ORDER: Section[] = ["ports", "containers", "images", "daemons", "system", "network"];
+const SECTION_ORDER: Section[] = ["ports", "containers", "images", "daemons", "system", "network", "processes", "services"];
 const SECTION_LABELS: Record<Section, string> = {
   ports: "Ports",
   containers: "Containers",
@@ -33,6 +35,8 @@ const SECTION_LABELS: Record<Section, string> = {
   daemons: "Daemons",
   system: "System",
   network: "Network",
+  processes: "Procs",
+  services: "Services",
 };
 
 const BOX_OVERHEAD = 5;
@@ -61,6 +65,8 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
   const netIfaces = probe?.networkInterfaces ?? [];
   const routes = probe?.routes ?? [];
   const firewall = probe?.firewallRules ?? [];
+  const processes = probe?.processes ?? [];
+  const services = probe?.services ?? [];
 
   // Apply filter to list-based sections
   const fContainers = useMemo(() => {
@@ -87,6 +93,18 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
     return daemons.filter(d => d.name.toLowerCase().includes(f) || d.status.toLowerCase().includes(f));
   }, [daemons, filter]);
 
+  const fProcesses = useMemo(() => {
+    if (!filter) return processes;
+    const f = filter.toLowerCase();
+    return processes.filter(p => p.command.toLowerCase().includes(f) || p.user.toLowerCase().includes(f) || String(p.pid).includes(f));
+  }, [processes, filter]);
+
+  const fServices = useMemo(() => {
+    if (!filter) return services;
+    const f = filter.toLowerCase();
+    return services.filter(s => s.name.toLowerCase().includes(f) || s.activeState.toLowerCase().includes(f) || s.description.toLowerCase().includes(f));
+  }, [services, filter]);
+
   // Active list for the current section
   const activeList = useMemo(() => {
     switch (section) {
@@ -94,14 +112,16 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       case "ports": return fPorts;
       case "images": return fImages;
       case "daemons": return fDaemons;
+      case "processes": return fProcesses;
+      case "services": return fServices;
       default: return [];
     }
-  }, [section, fContainers, fPorts, fImages, fDaemons]);
+  }, [section, fContainers, fPorts, fImages, fDaemons, fProcesses, fServices]);
 
   // Height calculations
   const availH = Math.max(8, termHeight - HEADER - FOOTER);
-  const focusedH = Math.floor(availH * 0.55);
-  const otherH = Math.floor((availH - focusedH - 4) / 5);
+  const focusedH = Math.floor(availH * 0.50);
+  const otherH = Math.floor((availH - focusedH - 6) / 7);
 
   const sectionH = (s: Section) => s === section ? focusedH : Math.max(3, otherH);
   const maxItems = (s: Section) => Math.max(1, sectionH(s) - BOX_OVERHEAD);
@@ -197,6 +217,57 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
     if (count > 0) onRefresh();
   }, [onRefresh]);
 
+  const handleProcessAction = useCallback(async (action: string) => {
+    if (fProcesses.length === 0) return;
+    const p = fProcesses[selectedIdx];
+    if (!p) return;
+
+    switch (action) {
+      case "kill":
+        setActionMsg(`killing PID ${p.pid}...`);
+        if (await killProcess(p.pid)) { setActionMsg(`[ok] killed PID ${p.pid}`); onRefresh(); }
+        else setActionMsg(`[!] failed to kill PID ${p.pid}`);
+        break;
+      case "kill-9":
+        setActionMsg(`force killing PID ${p.pid}...`);
+        if (await killProcess(p.pid, "KILL")) { setActionMsg(`[ok] force killed PID ${p.pid}`); onRefresh(); }
+        else setActionMsg(`[!] failed to force kill PID ${p.pid}`);
+        break;
+    }
+  }, [fProcesses, selectedIdx, onRefresh]);
+
+  const handleServiceAction = useCallback(async (action: string) => {
+    if (fServices.length === 0) return;
+    const s = fServices[selectedIdx];
+    if (!s) return;
+
+    switch (action) {
+      case "svc-start":
+        setActionMsg(`starting ${s.name}...`);
+        if (await controlService(s.name, "start")) { setActionMsg(`[ok] started ${s.name}`); onRefresh(); }
+        else setActionMsg(`[!] failed to start ${s.name}`);
+        break;
+      case "svc-stop":
+        setActionMsg(`stopping ${s.name}...`);
+        if (await controlService(s.name, "stop")) { setActionMsg(`[ok] stopped ${s.name}`); onRefresh(); }
+        else setActionMsg(`[!] failed to stop ${s.name}`);
+        break;
+      case "svc-restart":
+        setActionMsg(`restarting ${s.name}...`);
+        if (await controlService(s.name, "restart")) { setActionMsg(`[ok] restarted ${s.name}`); onRefresh(); }
+        else setActionMsg(`[!] failed to restart ${s.name}`);
+        break;
+      case "svc-logs": {
+        setOverlay("logs");
+        setOverlayContent("Loading service logs...");
+        setOverlayScroll(0);
+        const logs = await getServiceLogs(s.name, 80);
+        setOverlayContent(logs);
+        return;
+      }
+    }
+  }, [fServices, selectedIdx, onRefresh]);
+
   const handleSubmit = useCallback((cmd: string) => {
     const trimmed = cmd.trim();
     if (!trimmed) return;
@@ -223,7 +294,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       return;
     }
 
-    const localCmds = ["start", "stop", "restart", "remove", "rm", "logs", "inspect", "prune", "refresh", "rm-image", "prune-images"];
+    const localCmds = ["start", "stop", "restart", "remove", "rm", "logs", "inspect", "prune", "refresh", "rm-image", "prune-images", "kill", "kill-9", "svc-start", "svc-stop", "svc-restart", "svc-logs"];
     if (localCmds.includes(lower)) {
       if (lower === "prune") { handlePrune(); return; }
       if (lower === "prune-images") { handleImageAction("prune-images"); return; }
@@ -234,13 +305,20 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
         else handleContainerAction("remove");
         return;
       }
+      if (lower === "kill") { handleProcessAction("kill"); return; }
+      if (lower === "kill-9") { handleProcessAction("kill-9"); return; }
+      if (lower === "svc-start") { handleServiceAction("svc-start"); return; }
+      if (lower === "svc-stop") { handleServiceAction("svc-stop"); return; }
+      if (lower === "svc-restart") { handleServiceAction("svc-restart"); return; }
+      if (lower === "svc-logs") { handleServiceAction("svc-logs"); return; }
       if (section === "images") return;
+      if (section === "processes" || section === "services") return;
       handleContainerAction(lower);
       return;
     }
 
     onCommand(lower);
-  }, [handleContainerAction, handleImageAction, handlePrune, onRefresh, onCommand, section]);
+  }, [handleContainerAction, handleImageAction, handlePrune, handleProcessAction, handleServiceAction, onRefresh, onCommand, section]);
 
   useInput((input, key) => {
     if (overlay) {
@@ -264,8 +342,8 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       return;
     }
 
-    // Number keys 1-6 to jump to sections
-    if (input >= "1" && input <= "6") {
+    // Number keys 1-8 to jump to sections
+    if (input >= "1" && input <= "8") {
       const idx = parseInt(input) - 1;
       if (idx < SECTION_ORDER.length) {
         setSection(SECTION_ORDER[idx]);
@@ -546,10 +624,76 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
         )}
       </StyledBox>
 
+      {/* Processes */}
+      <StyledBox
+        title={`Processes${fProcesses.length > 0 ? ` (${fProcesses.length})` : ""}`}
+        focused={section === "processes"}
+        height={sectionH("processes")}
+        overflow="hidden"
+        padding={1}
+        marginBottom={1}
+      >
+        {fProcesses.length > 0 ? (
+          <Box flexDirection="column" overflow="hidden">
+            {fProcesses.slice(0, maxItems("processes")).map((p, i) => {
+              const isSelected = section === "processes" && i === selectedIdx;
+              return (
+                <Box key={p.pid} width={innerWidth}>
+                  <Text color={isSelected ? colors.purple : colors.red}>{isSelected ? "> " : "  "}</Text>
+                  <Text color={isSelected ? colors.textBright : (i % 2 === 0 ? colors.text : colors.textMuted)} bold={isSelected}>
+                    {String(p.pid).padEnd(7)}
+                  </Text>
+                  <Text color={colors.textDim}> {truncate(p.user, 10).padEnd(10)}</Text>
+                  <Text color={colors.yellow}> {String(p.cpu.toFixed(1)).padStart(5)}%</Text>
+                  <Text color={colors.blue}> {String(p.mem.toFixed(1)).padStart(5)}%</Text>
+                  <Text color={colors.textMuted}> {truncate(p.command, innerWidth - 40)}</Text>
+                </Box>
+              );
+            })}
+          </Box>
+        ) : (
+          <Text color={colors.textMuted}>{filter ? "No processes match filter." : "No processes found."}</Text>
+        )}
+      </StyledBox>
+
+      {/* Services */}
+      <StyledBox
+        title={`Services${fServices.length > 0 ? ` (${fServices.length})` : ""}`}
+        focused={section === "services"}
+        height={sectionH("services")}
+        overflow="hidden"
+        padding={1}
+        marginBottom={1}
+      >
+        {fServices.length > 0 ? (
+          <Box flexDirection="column" overflow="hidden">
+            {fServices.slice(0, maxItems("services")).map((s, i) => {
+              const isSelected = section === "services" && i === selectedIdx;
+              const isActive = s.activeState === "active";
+              return (
+                <Box key={s.name + i} width={innerWidth}>
+                  <Text color={isSelected ? colors.purple : (isActive ? colors.green : colors.textMuted)}>
+                    {isSelected ? "> " : isActive ? "* " : "- "}
+                  </Text>
+                  <Text color={isSelected ? colors.textBright : (i % 2 === 0 ? colors.text : colors.textMuted)} bold={isSelected}>
+                    {truncate(s.name, 24).padEnd(24)}
+                  </Text>
+                  <Text color={isActive ? colors.green : colors.textMuted}> {truncate(s.activeState, 10).padEnd(10)}</Text>
+                  <Text color={colors.textDim}> {truncate(s.subState, 10)}</Text>
+                  <Text color={colors.textMuted}> {truncate(s.description, innerWidth - 55)}</Text>
+                </Box>
+              );
+            })}
+          </Box>
+        ) : (
+          <Text color={colors.textMuted}>{filter ? "No services match filter." : "No services found (systemd required)."}</Text>
+        )}
+      </StyledBox>
+
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
-          placeholder="start · stop · rm · logs · inspect · prune · rm-image · prune-images · filter <text> · 1-6 · back"
+          placeholder="start · stop · rm · kill · kill-9 · svc-start · svc-stop · svc-restart · svc-logs · prune · filter <text> · 1-8 · back"
           focused={true}
         />
       </Box>
@@ -558,7 +702,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
           shortcuts={[
             { key: "Up/Dn", label: "select" },
             { key: "tab", label: "switch section" },
-            { key: "1-6", label: "jump section" },
+            { key: "1-8", label: "jump section" },
             { key: "Enter", label: "execute cmd" },
             { key: "esc", label: "back" },
           ]}

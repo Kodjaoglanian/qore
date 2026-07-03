@@ -1,9 +1,11 @@
-import type { ProbeResult, HostInfo, NetworkInterface, RouteInfo, FirewallRule, DockerImage } from "./types.js";
+import type { ProbeResult, HostInfo, NetworkInterface, RouteInfo, FirewallRule, DockerImage, ProcessInfo, ServiceInfo } from "./types.js";
 import { scanPorts } from "./probe/network.js";
 import { getContainers, getDockerInfo, getDockerImages, isDockerAvailable } from "./probe/docker.js";
 import { scanDaemons } from "./probe/daemon.js";
 import { getHostInfo } from "./probe/system.js";
 import { getNetworkInterfaces, getRoutes, getFirewallRules } from "./probe/network-info.js";
+import { getTopProcesses } from "./probe/processes.js";
+import { getServices } from "./probe/services.js";
 
 export class Orchestrator {
   private lastProbe: ProbeResult | null = null;
@@ -16,6 +18,7 @@ export class Orchestrator {
     const [
       ports, containers, dockerInfo, dockerImages, daemons,
       hostInfo, networkInterfaces, routes, firewallRules,
+      processes, services,
     ] = await Promise.all([
       scanPorts().catch(() => []),
       getContainers().catch(() => []),
@@ -26,6 +29,8 @@ export class Orchestrator {
       getNetworkInterfaces().catch(() => []),
       getRoutes().catch(() => []),
       getFirewallRules().catch(() => []),
+      getTopProcesses(20).catch(() => []),
+      getServices().catch(() => []),
     ]);
 
     const result: ProbeResult = {
@@ -38,6 +43,8 @@ export class Orchestrator {
       networkInterfaces,
       routes,
       firewallRules,
+      processes,
+      services,
       timestamp: Date.now(),
     };
 

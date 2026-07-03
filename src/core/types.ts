@@ -96,6 +96,22 @@ export interface FirewallRule {
   interface: string;
 }
 
+export interface ProcessInfo {
+  pid: number;
+  user: string;
+  cpu: number;
+  mem: number;
+  command: string;
+}
+
+export interface ServiceInfo {
+  name: string;
+  loadState: string;
+  activeState: string;
+  subState: string;
+  description: string;
+}
+
 export interface ProbeResult {
   ports: DiscoveredPort[];
   containers: DockerContainer[];
@@ -106,6 +122,8 @@ export interface ProbeResult {
   networkInterfaces: NetworkInterface[];
   routes: RouteInfo[];
   firewallRules: FirewallRule[];
+  processes: ProcessInfo[];
+  services: ServiceInfo[];
   timestamp: number;
 }
 
