@@ -485,7 +485,7 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = t
         setOverlay(null);
         setOverlayContent([]);
         try {
-          const termW = Math.min(process.stdout.columns || 80, 200);
+          const termW = Math.max(20, (process.stdout.columns || 80) - 2);
           const termH = Math.max(8, (process.stdout.rows || 24) - 6);
           const pty = await ssh.openShell(conn, termW, termH, () => {});
           setPtyHandle(pty);
@@ -504,7 +504,7 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = t
         setOverlay(null);
         setOverlayContent([]);
         try {
-          const termW = Math.min(process.stdout.columns || 80, 200);
+          const termW = Math.max(20, (process.stdout.columns || 80) - 2);
           const termH = Math.max(8, (process.stdout.rows || 24) - 6);
           const pty = await ssh.execPty(conn, cmd, termW, termH, () => {});
           setPtyHandle(pty);

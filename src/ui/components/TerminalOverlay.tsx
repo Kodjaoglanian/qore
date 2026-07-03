@@ -46,41 +46,54 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
   const scrollOffset = useRef(0);
   const [showScroll, setShowScroll] = useState(false);
   const [finished, setFinished] = useState<number | null>(null);
+  const finishedRef = useRef<number | null>(null);
+  const renderPending = useRef(false);
 
-  const termW = Math.min(process.stdout.columns || 80, 200);
-  const termH = Math.max(8, (process.stdout.rows || 24) - 6);
+  const termW = Math.max(20, (stdout.columns || process.stdout.columns || 80) - 2);
+  const termH = Math.max(8, (stdout.rows || process.stdout.rows || 24) - 6);
 
   const renderScreen = useCallback(() => {
-    renderTick.current++;
-    forceRender(renderTick.current);
+    if (renderPending.current) return;
+    renderPending.current = true;
+    setTimeout(() => {
+      renderPending.current = false;
+      renderTick.current++;
+      forceRender(renderTick.current);
+    }, 16);
   }, []);
 
   useEffect(() => {
     let term: any = null;
+    let dataHandler: ((d: Buffer) => void) | null = null;
+    let closeHandler: ((code: number) => void) | null = null;
+    let cancelled = false;
 
     (async () => {
+      if (cancelled) return;
       if (typeof (globalThis as any).window === "undefined") {
         (globalThis as any).window = globalThis;
       }
       const { Terminal } = await import("xterm-headless");
+      if (cancelled) return;
       term = new Terminal({
         cols: termW,
         rows: termH,
-        convertEol: false,
+        convertEol: true,
         allowProposedApi: true,
       });
       termRef.current = term;
 
       pty.resize(termW, termH);
 
-      const dataHandler = (data: string) => {
-        term.write(data);
+      dataHandler = (d: Buffer) => {
+        term.write(d.toString());
         renderScreen();
       };
 
-      pty.stream.on("data", (d: Buffer) => dataHandler(d.toString()));
+      pty.stream.on("data", dataHandler);
 
-      const closeHandler = (code: number) => {
+      closeHandler = (code: number) => {
+        finishedRef.current = code ?? 0;
         setFinished(code ?? 0);
         renderScreen();
       };
@@ -90,7 +103,10 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
     })();
 
     return () => {
+      cancelled = true;
       if (term) term.dispose();
+      if (dataHandler) try { pty.stream.off("data", dataHandler); } catch {}
+      if (closeHandler) try { pty.stream.off("close", closeHandler); } catch {}
     };
   }, []);
 
@@ -98,23 +114,28 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
     const term = termRef.current;
     if (!term) return;
 
-    if (key.escape) {
-      if (finished !== null) {
-        onDone({ exitCode: finished, stdout: "", stderr: "" });
+    if (key.escape || input === "\x1b") {
+      if (finishedRef.current !== null) {
+        onDone({ exitCode: finishedRef.current, stdout: "", stderr: "" });
       } else {
-        pty.cancel();
+        try { pty.cancel(); } catch {}
         onCancel();
       }
       return;
     }
 
+    if (finishedRef.current !== null && (input === "q" || input === "Q")) {
+      onDone({ exitCode: finishedRef.current, stdout: "", stderr: "" });
+      return;
+    }
+
     if (key.ctrl && input === "c") {
-      pty.send("\x03");
+      try { pty.send("\x03"); } catch {}
       return;
     }
 
     if (key.ctrl && input === "d") {
-      pty.send("\x04");
+      try { pty.send("\x04"); } catch {}
       return;
     }
 
@@ -146,16 +167,16 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
     scrollOffset.current = 0;
     setShowScroll(false);
 
-    if (finished !== null) return;
+    if (finishedRef.current !== null) return;
 
     if (key.return) {
-      pty.send("\r");
+      try { pty.send("\r"); } catch {}
     } else if (key.backspace || key.delete) {
-      pty.send("\x7f");
+      try { pty.send("\x7f"); } catch {}
     } else if (key.tab) {
-      pty.send("\t");
+      try { pty.send("\t"); } catch {}
     } else if (input && !key.ctrl && !key.meta) {
-      pty.send(input);
+      try { pty.send(input); } catch {}
     }
   });
 
@@ -163,6 +184,8 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
   if (!term) return null;
 
   const buffer = term.buffer.active;
+  const cursorX = buffer.cursorX;
+  const cursorY = buffer.cursorY;
   const lines: ScreenLine[] = [];
 
   const totalLines = buffer.length;
@@ -219,7 +242,7 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
     <Box flexDirection="column" height={termH + 2}>
       <Box marginBottom={0} flexDirection="row" justifyContent="space-between">
         <Text color={finished !== null ? colors.green : colors.purpleBright} bold>
-          {"  > "}{title}{finished !== null ? ` [done exit=${finished} · esc to return]` : " [terminal — type to interact · esc to exit]"}
+          {"  > "}{title}{finished !== null ? ` [done exit=${finished} · esc/q to return]` : " [terminal — type to interact · esc to exit]"}
         </Text>
         {showScroll && (
           <ScrollIndicator
@@ -230,17 +253,42 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
         )}
       </Box>
       <Box flexDirection="column" height={termH} overflow="hidden">
-        {lines.map((line, i) => (
-          <Box key={i}>
-            <Text
-              color={line.fg || colors.text}
-              bold={line.bold}
-              dimColor={line.dim}
-            >
-              {line.text}
-            </Text>
-          </Box>
-        ))}
+        {lines.map((line, i) => {
+          const isCursorLine = !showScroll && i === cursorY && finished === null;
+
+          if (isCursorLine && cursorX < line.text.length) {
+            const before = line.text.slice(0, cursorX);
+            const cursorChar = line.text.charAt(cursorX);
+            const after = line.text.slice(cursorX + 1);
+            return (
+              <Box key={i}>
+                <Text color={line.fg || colors.text} bold={line.bold} dimColor={line.dim}>{before}</Text>
+                <Text backgroundColor={line.fg || colors.purpleBright} bold>{cursorChar}</Text>
+                <Text color={line.fg || colors.text} bold={line.bold} dimColor={line.dim}>{after}</Text>
+              </Box>
+            );
+          } else if (isCursorLine) {
+            const padded = line.text + " ".repeat(Math.max(0, cursorX - line.text.length));
+            return (
+              <Box key={i}>
+                <Text color={line.fg || colors.text} bold={line.bold} dimColor={line.dim}>{padded}</Text>
+                <Text backgroundColor={colors.purpleBright}> </Text>
+              </Box>
+            );
+          }
+
+          return (
+            <Box key={i}>
+              <Text
+                color={line.fg || colors.text}
+                bold={line.bold}
+                dimColor={line.dim}
+              >
+                {line.text}
+              </Text>
+            </Box>
+          );
+        })}
       </Box>
     </Box>
   );
