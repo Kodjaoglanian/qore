@@ -48,7 +48,7 @@ interface StorageProvider {
 Manages encrypted credentials for all external connections.
 
 - `crypto.ts`: scrypt key derivation (N=2^17, r=8, p=1) + AES-256-GCM authenticated encryption using `node:crypto`.
-- `vault.ts`: Manages `~/.qore/vault.enc` — init, unlock, add/update/remove connections, change password. Key is zeroed on lock.
+- `vault.ts`: Manages `~/.qore/vault.enc` — init (refuses overwrite), forceInit (with backup), unlock, add/update/remove connections, change password, automatic backup rotation (max 5 in `~/.qore/backups/`), restore. Key is zeroed on lock.
 - `types.ts`: `ConnectionConfig` interface — generic, supports redis, postgres, mysql, mongo, s3, http, ssh, git.
 
 ### 2c. Connection Managers (`src/core/connections/`)

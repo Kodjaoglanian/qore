@@ -74,7 +74,7 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 - **Database Tools**: Export table data to CSV, run EXPLAIN query plans, and monitor slow queries across PostgreSQL, MySQL, and MongoDB.
 - **S3 Operations**: Upload, download, delete objects, and generate pre-signed URLs with AWS SigV4.
 - **Git Repository Management**: Full git operations including branch visualization, staging, committing, merging, rebasing, cherry-picking, blaming, tagging, and remote management with an ASCII branch tree dashboard.
-- **Self-Updating**: Run `qore update` to download the latest version automatically.
+- **Self-Updating**: Run `qore update` to download the latest version with progress bar, changelog preview, and automatic backup.
 - **Multi-Platform**: Prebuilt binaries for Linux (x64/arm64), macOS (Apple Silicon), and Windows (x64).
 - **CI/CD Pipeline**: Automated testing, building, and releasing via GitHub Actions with 4-platform binary compilation.
 
