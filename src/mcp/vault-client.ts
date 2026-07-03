@@ -25,29 +25,7 @@ export interface VaultErrorResponse {
 export class VaultClient {
   private socket: any = null;
 
-  async connect(): Promise<boolean> {
-    try {
-      this.socket = await Bun.connect({
-        unix: SOCKET_PATH,
-        socket: {
-          open(_s: any) {},
-          error(_s: any, _err: Error) {},
-        },
-      } as any);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   async request(op: string, extra?: Record<string, unknown>): Promise<any> {
-    if (!this.socket) {
-      const connected = await this.connect();
-      if (!connected) {
-        return { error: "vault_locked" };
-      }
-    }
-
     return new Promise((resolve) => {
       let data = "";
       let settled = false;
@@ -56,7 +34,7 @@ export class VaultClient {
       };
 
       try {
-        this.socket = Bun.connect({
+        Bun.connect({
           unix: SOCKET_PATH,
           socket: {
             open(s: any) {
@@ -86,12 +64,12 @@ export class VaultClient {
               }
             },
             error(_s: any, _err: Error) {
-              done({ error: "socket_error" });
+              done({ error: "vault_locked" });
             },
           },
         } as any);
       } catch {
-        done({ error: "socket_connect_failed" });
+        done({ error: "vault_locked" });
       }
 
       setTimeout(() => done({ error: "timeout" }), 5000);
