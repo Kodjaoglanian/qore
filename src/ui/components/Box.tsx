@@ -14,6 +14,7 @@ interface BoxProps {
   margin?: number;
   marginBottom?: number;
   marginTop?: number;
+  marginRight?: number;
   overflow?: "hidden";
   variant?: "default" | "overlay";
 }
@@ -30,6 +31,7 @@ export function StyledBox({
   margin = 0,
   marginBottom,
   marginTop,
+  marginRight,
   overflow,
   variant = "default",
 }: BoxProps) {
@@ -46,6 +48,7 @@ export function StyledBox({
       margin={margin}
       marginBottom={marginBottom}
       marginTop={marginTop}
+      marginRight={marginRight}
       borderStyle={borderStyle}
       borderColor={border}
       overflow={overflow}
