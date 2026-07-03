@@ -32,7 +32,7 @@ Qore combines three responsibilities in a single process:
 
 - **Discovery**: Scans local TCP ports, Docker containers via the Unix socket, daemon processes managed by pm2 or systemd, network interfaces, system resources, and running services.
 - **Secure Vault**: Stores connection credentials with AES-256-GCM encryption and scrypt key derivation. The master password is never written to disk. A Unix socket bridge exposes the vault to the MCP server without exposing credentials to AI models.
-- **Resource Management**: Provides a unified command interface for Redis, PostgreSQL, MySQL, MongoDB, S3-compatible storage, HTTP APIs, and SSH servers using native wire protocols instead of vendor-specific CLIs.
+- **Resource Management**: Provides a unified command interface for Redis, PostgreSQL, MySQL, MongoDB, S3-compatible storage, HTTP APIs, SSH servers, and Git repositories using native wire protocols and CLI wrappers instead of vendor-specific tools.
 
 The interface is designed around a persistent command bar, keyboard navigation, and a dark, high-contrast color scheme. A sidebar-driven discovery screen provides at-a-glance infrastructure visibility with section-specific filtering and contextual actions.
 
@@ -60,7 +60,7 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 
 ### Connection Management
 
-- **Protocol-Native Drivers**: Redis (RESP), PostgreSQL (wire protocol), MySQL (mysql2), MongoDB (wire protocol), S3-compatible REST, HTTP API, and SSH (ssh2).
+- **Protocol-Native Drivers**: Redis (RESP), PostgreSQL (wire protocol), MySQL (mysql2), MongoDB (wire protocol), S3-compatible REST, HTTP API, SSH (ssh2), and Git (CLI wrapper).
 - **Multi-Connection Tabs**: Open multiple service connections simultaneously and switch between them with Ctrl+Tab or Ctrl+Arrow keys. All tabs stay mounted with state preserved.
 - **Multi-Session**: Open multiple sessions of the same connection (for example, two SSH sessions to the same server). Use the `new` command inside any service screen.
 - **SSH Toolkit**: File operations, service control, Docker management, SFTP transfer, process and network utilities, security audits, server snapshots, deploy scripts, and Docker Compose management.
@@ -73,6 +73,7 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 - **Favorites**: Star frequently used commands with `star <cmd>` and recall them with `favorites`.
 - **Database Tools**: Export table data to CSV, run EXPLAIN query plans, and monitor slow queries across PostgreSQL, MySQL, and MongoDB.
 - **S3 Operations**: Upload, download, delete objects, and generate pre-signed URLs with AWS SigV4.
+- **Git Repository Management**: Full git operations including branch visualization, staging, committing, merging, rebasing, cherry-picking, blaming, tagging, and remote management with an ASCII branch tree dashboard.
 - **Self-Updating**: Run `qore update` to download the latest version automatically.
 - **Multi-Platform**: Prebuilt binaries for Linux (x64/arm64), macOS (Apple Silicon), and Windows (x64).
 - **CI/CD Pipeline**: Automated testing, building, and releasing via GitHub Actions with 4-platform binary compilation.
@@ -239,7 +240,7 @@ The discovery screen uses a sidebar layout with 9 sections. Press `1` through `9
 
 | Command | Description |
 |---------|-------------|
-| `add` | Add a new connection (redis, postgres, mysql, mongo, s3, http, ssh) |
+| `add` | Add a new connection (redis, postgres, mysql, mongo, s3, http, ssh, git) |
 | `connect <n>` | Connect to saved connection number n |
 | `test <n>` | Test connection number n |
 | `rm <n>` | Remove connection number n |
@@ -356,6 +357,36 @@ The discovery screen uses a sidebar layout with 9 sections. Press `1` through `9
 | `logs docker <container>` | View Docker container logs |
 | `reboot yes` | Reboot the remote machine (requires explicit confirmation) |
 | `shutdown yes` | Shut down the remote machine (requires explicit confirmation) |
+
+### Git commands
+
+| Command | Description |
+|---------|-------------|
+| `status` | Show staged, unstaged, and untracked files |
+| `diff [--staged]` | Show working tree or staged diff |
+| `diff <b1> <b2>` | Show diff between two branches |
+| `log` | Show commit graph with ASCII branch tree |
+| `branches` | List all branches with ahead/behind counts |
+| `checkout <branch>` | Switch to a branch |
+| `branch <name>` | Create and switch to a new branch |
+| `branch -d <name>` | Delete a branch |
+| `stage [files...]` | Stage specific files or all changes |
+| `unstage [files...]` | Unstage specific files or all changes |
+| `commit <message>` | Create a commit |
+| `amend [message]` | Amend the last commit |
+| `merge <branch>` | Merge a branch into the current branch |
+| `rebase <branch>` | Rebase current branch onto another branch |
+| `fetch [remote]` | Fetch from remote |
+| `pull [remote] [branch]` | Pull from remote |
+| `push [remote] [branch]` | Push to remote |
+| `cherry-pick <hash>` | Cherry-pick a commit |
+| `revert <hash>` | Revert a commit |
+| `blame <file>` | Show blame information for a file |
+| `tags` | List all tags |
+| `tag <name> [message]` | Create a new tag |
+| `remotes` | List all remotes |
+| `remote-add <name> <url>` | Add a new remote |
+| `exec <git args...>` | Run any raw git command |
 
 ---
 
@@ -662,7 +693,7 @@ The CI pipeline handles the rest: building, changelog generation, and GitHub Rel
 - Docker Unix socket integration
 - Terminal-native welcome screen
 - Secure credential vault (AES-256-GCM + scrypt)
-- Connection managers for Redis, S3-compatible storage, PostgreSQL, MySQL, MongoDB, HTTP API, and SSH
+- Connection managers for Redis, S3-compatible storage, PostgreSQL, MySQL, MongoDB, HTTP API, SSH, and Git repositories
 - Connections and service screens
 - Vault password change flow in the UI
 - Encrypted connection import and export (QOREX1 bundle format)
@@ -685,6 +716,7 @@ The CI pipeline handles the rest: building, changelog generation, and GitHub Rel
 - MCP server: 35 tools, 5 resources, 4 prompts over JSON-RPC 2.0 (stdio)
 - MCP vault bridge: Unix socket with 0600 permissions, credential isolation
 - MCP documentation: docs/mcp.md, config examples for Claude Desktop, Cursor, Windsurf
+- Git repository management: branch tree visualization, staging, committing, merging, rebasing, cherry-picking, blaming, tagging, remote management
 
 ### Planned
 
