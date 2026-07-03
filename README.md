@@ -1,8 +1,9 @@
-# Qore
+<p align="center">
+  <img src="assets/qore-logo.png" alt="Qore" width="320">
+</p>
 
-Ultra-lightweight, single-binary hybrid infrastructure orchestrator with a terminal-native TUI.
-
-Built for developers who manage local services, containers, and cloud-compatible resources from the terminal without leaving the keyboard. Qore scans the environment, stores credentials securely, and exposes a consistent command interface for Redis, PostgreSQL, MongoDB, S3-compatible storage, HTTP APIs, and SSH servers.
+<h3 align="center">Ultra-lightweight, single-binary hybrid infrastructure orchestrator</h3>
+<p align="center">Terminal-native TUI with built-in MCP server for AI-driven operations</p>
 
 ---
 
@@ -29,37 +30,59 @@ Built for developers who manage local services, containers, and cloud-compatible
 
 Qore combines three responsibilities in a single process:
 
-- **Discovery**: Scans local TCP ports, Docker containers via the Unix socket, and daemon processes managed by pm2 or systemd.
-- **Secure Vault**: Stores connection credentials with AES-256-GCM encryption and scrypt key derivation. The master password is never written to disk.
-- **Resource Management**: Provides a unified command interface for databases, object storage, and HTTP endpoints, using native protocols instead of vendor-specific CLIs.
+- **Discovery**: Scans local TCP ports, Docker containers via the Unix socket, daemon processes managed by pm2 or systemd, network interfaces, system resources, and running services.
+- **Secure Vault**: Stores connection credentials with AES-256-GCM encryption and scrypt key derivation. The master password is never written to disk. A Unix socket bridge exposes the vault to the MCP server without exposing credentials to AI models.
+- **Resource Management**: Provides a unified command interface for Redis, PostgreSQL, MySQL, MongoDB, S3-compatible storage, HTTP APIs, and SSH servers using native wire protocols instead of vendor-specific CLIs.
 
-The interface is designed around a persistent command bar, keyboard navigation, and a dark, high-contrast color scheme inspired by terminal-native tools.
+The interface is designed around a persistent command bar, keyboard navigation, and a dark, high-contrast color scheme. A sidebar-driven discovery screen provides at-a-glance infrastructure visibility with section-specific filtering and contextual actions.
 
 ---
 
 ## Features
 
-- **Auto-Discovery**: Identify running services on local ports without manual configuration.
+### Infrastructure Discovery
+
+- **Auto-Discovery**: Identify running services on local TCP ports without manual configuration.
 - **Docker Integration**: Control containers directly through `/var/run/docker.sock`. No `docker` CLI dependency.
-- **Hybrid Storage**: Switch between local emulated S3 (SQLite + filesystem) and real AWS S3 credentials.
-- **Credential Vault**: Encrypt connections at rest with a single master password.
-- **Protocol-Native Drivers**: Redis, PostgreSQL, MySQL, MongoDB, S3-compatible, HTTP API, and SSH support without vendor lock-in.
-- **Vault Management**: Change master password and import/export encrypted connection bundles.
-- **Self-Updating**: Run `qore update` to download the latest version automatically.
-- **Multi-Platform**: Prebuilt binaries for Linux (x64/arm64), macOS (Apple Silicon), and Windows (x64).
-- **Keyboard-First TUI**: Type commands, use arrow keys for selection, and press Escape to navigate back.
-- **Multi-Connection Tabs**: Open multiple service connections simultaneously and switch between them with Ctrl+Tab / Ctrl+Arrow keys. All tabs stay mounted — connections remain active and state is preserved when switching.
-- **Multi-Session**: Open multiple sessions of the same connection (e.g., two SSH sessions to the same server). Use the `new` command inside any service screen to open a duplicate session.
+- **Daemon Detection**: Scan for pm2 and systemd managed processes.
+- **System Monitoring**: CPU, memory, swap, load average, disk usage, and uptime reporting.
+- **Network Inspection**: List interfaces, routing tables, and firewall rules.
+- **Process Management**: View top processes by CPU usage with kill capability.
+- **Service Control**: List and manage systemd services (start, stop, restart).
+- **Container Operations**: Start, stop, restart, remove, inspect, view logs, exec commands, and batch actions on containers.
+- **Image Management**: List and remove Docker images with prune support.
+
+### Security and Vault
+
+- **Credential Vault**: Encrypt connections at rest with a single master password using scrypt key derivation and AES-256-GCM authenticated encryption.
+- **Vault Management**: Change master password and import/export encrypted connection bundles (QOREX1 format).
+- **Socket Bridge**: Unix socket (`~/.qore/qore.sock`, chmod 0600) exposes the vault to the MCP server. Credentials are never passed to AI models.
+
+### Connection Management
+
+- **Protocol-Native Drivers**: Redis (RESP), PostgreSQL (wire protocol), MySQL (mysql2), MongoDB (wire protocol), S3-compatible REST, HTTP API, and SSH (ssh2).
+- **Multi-Connection Tabs**: Open multiple service connections simultaneously and switch between them with Ctrl+Tab or Ctrl+Arrow keys. All tabs stay mounted with state preserved.
+- **Multi-Session**: Open multiple sessions of the same connection (for example, two SSH sessions to the same server). Use the `new` command inside any service screen.
+- **SSH Toolkit**: File operations, service control, Docker management, SFTP transfer, process and network utilities, security audits, server snapshots, deploy scripts, and Docker Compose management.
+
+### Developer Experience
+
+- **Keyboard-First TUI**: Type commands, use arrow keys for selection, press Escape to navigate back.
 - **Command History**: Navigate previous commands with Up/Down arrows when the input bar has text.
 - **Tab Autocomplete**: Press Tab to cycle through matching commands.
 - **Favorites**: Star frequently used commands with `star <cmd>` and recall them with `favorites`.
-- **SSH Security Audit**: Run a comprehensive security checklist on remote servers.
-- **Snapshots & Diff**: Save server state snapshots and compare them to detect changes over time.
-- **DevOps Commands**: Deploy scripts, check git status, and manage Docker Compose on remote servers.
-- **Database Export**: Export table data to CSV files.
-- **Query Analysis**: Run EXPLAIN plans and monitor slow queries across PostgreSQL, MySQL, and MongoDB.
-- **S3 File Management**: Upload, download, delete objects, and generate pre-signed URLs.
+- **Database Tools**: Export table data to CSV, run EXPLAIN query plans, and monitor slow queries across PostgreSQL, MySQL, and MongoDB.
+- **S3 Operations**: Upload, download, delete objects, and generate pre-signed URLs with AWS SigV4.
+- **Self-Updating**: Run `qore update` to download the latest version automatically.
+- **Multi-Platform**: Prebuilt binaries for Linux (x64/arm64), macOS (Apple Silicon), and Windows (x64).
 - **CI/CD Pipeline**: Automated testing, building, and releasing via GitHub Actions with 4-platform binary compilation.
+
+### MCP Server
+
+- **35 Tools**: SSH, Docker, database, system, discovery, and HTTP operations exposed via JSON-RPC 2.0.
+- **5 Resources**: Connections, probe snapshots, containers, images, and system information.
+- **4 Prompts**: Infrastructure diagnostics, security audit, container health, and database health check.
+- **Zero Credential Exposure**: AI models interact with infrastructure through connection names only. The vault bridge retrieves credentials server-side.
 
 ---
 
@@ -85,8 +108,6 @@ qore
 
 ### Updating
 
-To update an existing installation to the latest version:
-
 ```bash
 qore update
 ```
@@ -96,22 +117,13 @@ qore update
 Requirements:
 
 - [Bun](https://bun.sh) runtime (version 1.1 or newer)
-- Node.js-compatible environment for development
-- Docker access permissions if container management is used
+- Docker group membership if container management is used (`sudo usermod -aG docker $USER`)
 
 ```bash
-# Clone the repository
 git clone https://github.com/Kodjaoglanian/qore.git
 cd qore
-
-# Install dependencies
 bun install
-
-# Run the TUI in development mode
 bun run dev
-
-# Build a single binary
-bun run build
 ```
 
 ---
@@ -142,10 +154,20 @@ Qore creates the following local directories on first run:
 ~/.qore/
   vault.enc           # Encrypted credential vault
   vault.meta.json     # Vault metadata
+  qore.sock           # Unix socket for MCP vault bridge (when unlocked)
   storage/            # Local emulated S3 objects
   metadata.db         # SQLite metadata for local storage
   favorites.json      # Starred commands
   snapshots/          # SSH server state snapshots (JSON)
+```
+
+### Docker permissions
+
+If Docker containers are not appearing in the discovery screen, ensure your user is a member of the `docker` group:
+
+```bash
+sudo usermod -aG docker $USER
+# Log out and log back in for the change to take effect
 ```
 
 ---
@@ -158,12 +180,46 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 
 | Command | Description |
 |---------|-------------|
-| `discover` | Scan ports, Docker containers, and daemon processes |
+| `discover` | Scan ports, Docker containers, daemons, system info, network, processes, and services |
 | `connections` | Manage saved service connections |
 | `vault` | Create or unlock the credential vault |
 | `help` | Show the full command reference |
 | `back` / `esc` | Return to the previous screen |
 | `quit` / `exit` / `^c` | Exit Qore from any screen |
+
+### Discovery screen
+
+The discovery screen uses a sidebar layout with 9 sections. Press `1` through `9` or `Tab` to switch sections. Use `Up`/`Down` to navigate within a section.
+
+| Section | Description |
+|---------|-------------|
+| Overview | System summary, quick stats grid, and disk usage |
+| Ports | Open TCP ports with process info |
+| Containers | Docker containers with lifecycle actions |
+| Images | Docker images with removal and prune |
+| Daemons | pm2 and systemd managed processes |
+| System | Host information, CPU, memory, disks |
+| Network | Interfaces, routes, and firewall rules |
+| Procs | Top processes by CPU with kill capability |
+| Services | systemd services with control actions |
+
+| Command | Description |
+|---------|-------------|
+| `start` / `stop` / `restart` | Container lifecycle actions |
+| `rm` | Remove selected container or image |
+| `logs` | View container or service logs |
+| `inspect` | Inspect container details |
+| `stats` | Container resource statistics |
+| `exec <cmd>` | Execute command inside container |
+| `prune` | Remove stopped containers |
+| `prune-images` | Remove unused images |
+| `kill` / `kill-9` | Terminate selected process |
+| `svc-start` / `svc-stop` / `svc-restart` | Control systemd services |
+| `svc-logs` | View service logs |
+| `batch-start` / `batch-stop` / `batch-restart` | Batch container actions |
+| `filter <text>` | Filter current section by text |
+| `auto` | Toggle auto-refresh (5 second interval) |
+| `refresh` | Re-run the discovery scan |
 
 ### UX commands (available on service screens)
 
@@ -175,21 +231,9 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 | `Up/Down` (empty input) | Navigate command list |
 | `Up/Down` (with text) | Navigate command history |
 | `Tab` | Autocomplete matching commands |
-| `Ctrl+Tab` / `Ctrl+→` | Switch to next connection tab |
-| `Ctrl+←` | Switch to previous connection tab |
-
-### Discovery screen
-
-| Command | Description |
-|---------|-------------|
-| `start` | Start the selected container |
-| `stop` | Stop the selected container |
-| `restart` | Restart the selected container |
-| `rm` | Remove the selected container |
-| `logs` | View container logs |
-| `inspect` | Inspect container details |
-| `prune` | Remove stopped containers |
-| `refresh` | Re-run the discovery scan |
+| `Ctrl+Tab` / `Ctrl+Right` | Switch to next connection tab |
+| `Ctrl+Left` | Switch to previous connection tab |
+| `new` | Open a duplicate session of the current connection |
 
 ### Connections screen
 
@@ -312,17 +356,33 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 | `logs docker <container>` | View Docker container logs |
 | `reboot yes` | Reboot the remote machine (requires explicit confirmation) |
 | `shutdown yes` | Shut down the remote machine (requires explicit confirmation) |
-| `quit` / `exit` | Exit Qore from any screen |
 
 ---
 
 ## MCP Server
 
-Qore includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) server that exposes infrastructure management capabilities to AI models (Claude, GPT, Cursor, Windsurf, etc.) — **without exposing credentials**.
+Qore includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) server that exposes infrastructure management capabilities to AI models (Claude, GPT, Cursor, Windsurf, and others) without exposing credentials.
+
+### Architecture
+
+```text
++-------------+     JSON-RPC      +--------------+     Unix Socket     +--------------+
+|  AI Model   | <--------------> |  qore mcp    | <-----------------> |  qore TUI    |
+| (Claude/GPT)|    (stdio)       |  (subprocess)|  ~/.qore/qore.sock  |  (vault)     |
++-------------+                  +--------------+                     +--------------+
+```
+
+- The **TUI** holds the encrypted vault in memory and opens a Unix socket at `~/.qore/qore.sock` (chmod 0600) when unlocked.
+- The **MCP server** (`qore mcp`) runs as a subprocess of the AI client, connects to the socket on demand, and retrieves connection configs to execute operations.
+- The **AI model** never sees credentials. It only uses connection names and receives operation results.
 
 ### Quick Start
 
-1. Start qore TUI and unlock your vault
+1. Start the qore TUI and unlock your vault:
+   ```bash
+   qore
+   ```
+
 2. Configure your AI client:
    ```json
    {
@@ -334,19 +394,79 @@ Qore includes a built-in [Model Context Protocol](https://modelcontextprotocol.i
      }
    }
    ```
-3. The AI model can now discover ports, manage Docker containers, execute SSH commands, query databases, and more
 
-### How It Works
+3. The AI model can now discover ports, manage Docker containers, execute SSH commands, query databases, and more.
 
-The TUI holds the encrypted vault and opens a Unix socket (`~/.qore/qore.sock`) when unlocked. The MCP server (`qore mcp`) runs as a subprocess of the AI client, connects to the socket on demand, and retrieves connection configs to execute operations. The AI model never sees credentials.
+### Security Model
+
+- Credentials are never exposed to the AI model.
+- MCP tools only accept connection names, never return secrets.
+- Unix socket has filesystem permissions (0600). Only the same user can connect.
+- No credentials are written to disk or environment variables.
+- Socket file is cleaned up on vault lock, TUI exit, and process signals (SIGTERM/SIGINT).
+- If the vault is locked, connection-dependent tools return: `"Vault locked -- unlock in qore TUI first"`.
 
 ### Available Capabilities
 
-- **35 tools**: SSH, Docker, database, system, discovery, HTTP
+- **35 tools**: SSH (6), Docker (11), database (5), system (7), discovery (7), HTTP (4)
 - **5 resources**: connections, probe snapshot, containers, images, system info
 - **4 prompts**: diagnose_infra, security_audit, container_health, db_health_check
 
-See [docs/mcp.md](docs/mcp.md) for full documentation and configuration examples.
+### CLI help
+
+```bash
+qore mcp --help
+```
+
+### Environment variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `QORE_SOCKET_PATH` | Override the vault socket path | `~/.qore/qore.sock` |
+| `QORE_LOG_LEVEL` | Log level: debug, info, warn, error | `info` |
+
+### Configuration examples
+
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `~/.config/claude/claude_desktop_config.json` on Linux):
+
+```json
+{
+  "mcpServers": {
+    "qore": {
+      "command": "qore",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Cursor** (`.cursor/mcp.json` in your project):
+
+```json
+{
+  "mcp.servers": {
+    "qore": {
+      "command": "qore",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Windsurf** (`~/.codeium/windsurf/mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "qore": {
+      "command": "qore",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+See [docs/mcp.md](docs/mcp.md) for full documentation including all tools, resources, and prompts.
 
 ---
 
@@ -362,10 +482,14 @@ src/
       network.ts         # TCP port scanner
       docker.ts          # Docker Unix socket client
       daemon.ts          # pm2/systemd scanner
+      system.ts          # System info (CPU, memory, disks)
+      processes.ts       # Process listing and kill
+      services.ts        # systemd service control
+      network-info.ts    # Interfaces, routes, firewall
     providers/
       localS3.ts         # Local emulated S3 provider
       awsS3.ts           # AWS S3 provider
-      messaging.ts      # In-memory Pub/Sub
+      messaging.ts       # In-memory Pub/Sub
     vault/
       crypto.ts          # scrypt + AES-256-GCM
       vault.ts           # Encrypted vault file manager
@@ -402,7 +526,7 @@ src/
     App.tsx              # Root TUI component
     theme.ts             # Color palette
     WelcomeScreen.tsx    # Initial screen
-    DiscoverScreen.tsx   # Discovery results
+    DiscoverScreen.tsx   # Discovery results (sidebar layout)
     ConnectionsScreen.tsx# Connection management
     ServiceScreen.tsx    # Service-specific console
     VaultScreen.tsx      # Vault unlock/creation
@@ -418,9 +542,10 @@ src/
 ### Design principles
 
 - **Bun-native**: Prefer built-in Bun APIs such as `bun:sqlite`, `Bun.serve`, and `Bun.write` over heavier Node.js alternatives.
-- **Protocol-level**: Connect to services through their native protocols instead of wrapping CLI tools.
+- **Protocol-level**: Connect to services through their native wire protocols instead of wrapping CLI tools.
 - **Single binary**: The application compiles into one executable with `bun build --compile`.
 - **Zero-config discovery**: The first run can scan the environment without manual configuration files.
+- **Credential isolation**: The vault bridge ensures credentials never leave the process boundary. The MCP server receives connection names, not secrets.
 
 ---
 
@@ -428,9 +553,11 @@ src/
 
 ### Environment variables
 
-| Variable | Description |
-|----------|-------------|
-| `HOME` | Used to locate `~/.qore` and `~/.aws/credentials` |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HOME` | Used to locate `~/.qore` and `~/.aws/credentials` | System home directory |
+| `QORE_SOCKET_PATH` | Override the MCP vault socket path | `~/.qore/qore.sock` |
+| `QORE_LOG_LEVEL` | MCP server log level | `info` |
 
 ### AWS credentials
 
@@ -464,18 +591,16 @@ bun test
 
 ### Project scripts
 
-```json
-{
-  "dev": "bun run src/index.tsx",
-  "start": "bun run src/index.tsx",
-  "build": "bash scripts/prebuild.sh && bun build src/index.tsx --compile --outfile qore",
-  "tsc": "tsc --noEmit",
-  "test": "bun test",
-  "pretag": "bun run tsc && bun test",
-  "release:patch": "bun run pretag && npm version patch --no-git-tag-version && git add -A && git commit -m \"chore: bump version\" && git tag v$(node -p \"require('./package.json').version\") && git push origin main --tags",
-  "release:minor": "bun run pretag && npm version minor --no-git-tag-version && git add -A && git commit -m \"chore: bump version\" && git tag v$(node -p \"require('./package.json').version\") && git push origin main --tags"
-}
-```
+| Script | Description |
+|--------|-------------|
+| `dev` | Run the TUI in development mode |
+| `start` | Run the TUI (alias for dev) |
+| `build` | Prebuild patches and compile to single binary |
+| `tsc` | TypeScript type checking (no emit) |
+| `test` | Run the test suite |
+| `pretag` | Run tsc + tests before tagging |
+| `release:patch` | Validate, bump patch version, tag, and push |
+| `release:minor` | Validate, bump minor version, tag, and push |
 
 ---
 
@@ -525,15 +650,15 @@ bun run release:patch
 bun run release:minor
 ```
 
-The CI pipeline handles the rest — building, changelog generation, and GitHub Release creation.
+The CI pipeline handles the rest: building, changelog generation, and GitHub Release creation.
 
 ---
 
 ## Roadmap
 
-Implemented:
+### Implemented
 
-- Core network probe
+- Core network probe (TCP port scanner)
 - Docker Unix socket integration
 - Terminal-native welcome screen
 - Secure credential vault (AES-256-GCM + scrypt)
@@ -543,36 +668,42 @@ Implemented:
 - Encrypted connection import and export (QOREX1 bundle format)
 - Multi-platform builds (Linux x64/arm64, macOS arm64, Windows x64)
 - Self-updating via `qore update`
-- Service log aggregation (SSH/Redis/Postgres/MySQL/Mongo/HTTP)
-- SSH toolkit: file operations, service control, Docker management, SFTP transfer, process/network utilities
+- Service log aggregation (SSH, Redis, Postgres, MySQL, Mongo, HTTP)
+- SSH toolkit: file operations, service control, Docker management, SFTP transfer, process and network utilities
 - SSH management: ports, firewall, top, netstat, tail, edit, docker logs -f
 - UX improvements: command history, Tab autocomplete, favorites, multi-connection tabs
 - Database features: export to CSV, EXPLAIN query plan, slow queries monitoring
 - S3 operations: upload, download, delete objects, pre-signed URLs (AWS SigV4)
-- Security & infrastructure: security-audit, server snapshots, snapshot diff
+- Security and infrastructure: security-audit, server snapshots, snapshot diff
 - DevOps: deploy scripts, git-status, Docker Compose management
-- quit/exit command from any screen
 - Multi-connection: all tabs rendered simultaneously, state preserved on switch
 - Multi-connection: Ctrl+Tab / Ctrl+Arrows switching, close command to disconnect
 - Multi-session: multiple sessions of same connection (unique sessionId, `new` command)
 - CI/CD: 3-workflow pipeline with cache, smoke tests, pinned bun, automated releases
+- Discovery screen: sidebar layout with 9 sections, filtering, auto-refresh, batch actions
+- Discovery screen: process management, service control, container stats, Docker exec
+- MCP server: 35 tools, 5 resources, 4 prompts over JSON-RPC 2.0 (stdio)
+- MCP vault bridge: Unix socket with 0600 permissions, credential isolation
+- MCP documentation: docs/mcp.md, config examples for Claude Desktop, Cursor, Windsurf
 
-Planned:
+### Planned
 
 - Service health checks and monitoring dashboard
 - Local emulated S3 and Pub/Sub providers
 - Multi-architecture CI matrix for ARM native builds
 - Expanded test coverage (connection managers, SSH commands, UI components)
 - Linting (eslint/biome) in CI pipeline
+- WebSocket transport for MCP server
+- MCP sampling support for AI-driven remediation
 
 ---
 
 ## Contributing
 
-Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for details about the code of conduct, development workflow, and how to submit pull requests.
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details about the code of conduct, development workflow, and how to submit pull requests.
 
 ---
 
 ## License
 
-This project is released under the MIT License. See [LICENSE](./LICENSE) for the full text.
+This project is released under the MIT License. See [LICENSE](LICENSE) for the full text.
