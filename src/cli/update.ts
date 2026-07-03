@@ -178,6 +178,26 @@ export function handleCliArgs(args: string[]): Promise<void> | null {
 
   switch (cmd) {
     case "mcp":
+      if (args[1] === "--help" || args[1] === "-h") {
+        console.log(`
+  Qore MCP Server v${version}
+
+  Usage:
+    qore mcp              Start the MCP server (stdio transport)
+    qore mcp --help       Show this help message
+
+  The MCP server exposes qore's infrastructure tools to AI models.
+  Requires the qore TUI to be running with vault unlocked for
+  connection-dependent tools (SSH, DB, HTTP).
+
+  Environment:
+    QORE_SOCKET_PATH      Override socket path (default: ~/.qore/qore.sock)
+    QORE_LOG_LEVEL        Log level: debug|info|warn|error (default: info)
+
+  See: docs/mcp.md for configuration examples.
+`);
+        return Promise.resolve();
+      }
       return import("../mcp/index.js").then(m => m.runMcpServer());
     case "update":
       return doUpdate();

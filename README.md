@@ -13,14 +13,15 @@ Built for developers who manage local services, containers, and cloud-compatible
 3. [Quick Start](#quick-start)
 4. [Installation](#installation)
 5. [Usage](#usage)
-6. [Architecture](#architecture)
-7. [Configuration](#configuration)
-8. [Development](#development)
-9. [Testing](#testing)
-10. [Building](#building)
-11. [Roadmap](#roadmap)
-12. [Contributing](#contributing)
-13. [License](#license)
+6. [MCP Server](#mcp-server)
+7. [Architecture](#architecture)
+8. [Configuration](#configuration)
+9. [Development](#development)
+10. [Testing](#testing)
+11. [Building](#building)
+12. [Roadmap](#roadmap)
+13. [Contributing](#contributing)
+14. [License](#license)
 
 ---
 
@@ -315,6 +316,40 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 
 ---
 
+## MCP Server
+
+Qore includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) server that exposes infrastructure management capabilities to AI models (Claude, GPT, Cursor, Windsurf, etc.) — **without exposing credentials**.
+
+### Quick Start
+
+1. Start qore TUI and unlock your vault
+2. Configure your AI client:
+   ```json
+   {
+     "mcpServers": {
+       "qore": {
+         "command": "qore",
+         "args": ["mcp"]
+       }
+     }
+   }
+   ```
+3. The AI model can now discover ports, manage Docker containers, execute SSH commands, query databases, and more
+
+### How It Works
+
+The TUI holds the encrypted vault and opens a Unix socket (`~/.qore/qore.sock`) when unlocked. The MCP server (`qore mcp`) runs as a subprocess of the AI client, connects to the socket on demand, and retrieves connection configs to execute operations. The AI model never sees credentials.
+
+### Available Capabilities
+
+- **35 tools**: SSH, Docker, database, system, discovery, HTTP
+- **5 resources**: connections, probe snapshot, containers, images, system info
+- **4 prompts**: diagnose_infra, security_audit, container_health, db_health_check
+
+See [docs/mcp.md](docs/mcp.md) for full documentation and configuration examples.
+
+---
+
 ## Architecture
 
 ```text
@@ -335,6 +370,7 @@ src/
       crypto.ts          # scrypt + AES-256-GCM
       vault.ts           # Encrypted vault file manager
       types.ts           # Connection types and labels
+      socket-bridge.ts   # Unix socket server for MCP vault access
     connections/
       manager.ts         # Connection manager factory
       redis.ts           # Redis RESP driver
@@ -344,6 +380,22 @@ src/
       mongo.ts           # MongoDB wire driver
       http.ts            # HTTP API manager (generic REST)
       ssh.ts             # SSH remote manager (ssh2)
+  mcp/
+    index.ts             # MCP server entry point
+    server.ts            # JSON-RPC 2.0 server (stdio transport)
+    protocol.ts          # JSON-RPC types and error codes
+    registry.ts          # Tool registration and dispatch
+    vault-client.ts      # Unix socket client for vault access
+    resources.ts         # MCP resource providers
+    prompts.ts           # MCP prompt templates
+    config.ts            # MCP config and env var helpers
+    tools/
+      ssh.ts             # SSH tools (6)
+      docker.ts          # Docker tools (11)
+      database.ts        # Database tools (5)
+      system.ts          # System tools (7)
+      discover.ts        # Discovery tools (7)
+      http.ts            # HTTP tools (4)
   cli/
     update.ts            # Self-update and CLI argument handling
   ui/
