@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-export const SOCKET_PATH = join(homedir(), ".qore", "qore.sock");
-export const QORE_DIR = join(homedir(), ".qore");
+export const QORE_DIR = process.env.QORE_HOME ?? join(homedir(), ".qore");
+export const SOCKET_PATH = join(QORE_DIR, "qore.sock");
 
 export interface McpConfig {
   socketPath: string;

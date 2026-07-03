@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-const QORE_DIR = join(homedir(), ".qore");
+const QORE_DIR = process.env.QORE_HOME ?? join(homedir(), ".qore");
 const FAV_FILE = join(QORE_DIR, "favorites.json");
 
 export function loadFavorites(): string[] {

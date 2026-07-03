@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 
-const QORE_DIR = join(homedir(), ".qore");
+const QORE_DIR = process.env.QORE_HOME ?? join(homedir(), ".qore");
 const SNIPPETS_FILE = join(QORE_DIR, "snippets.json");
 
 export interface SnippetCommand {

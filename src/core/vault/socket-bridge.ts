@@ -4,7 +4,7 @@ import { existsSync, unlinkSync, chmodSync } from "node:fs";
 import type { Vault } from "./vault.js";
 import type { ConnectionConfig } from "./types.js";
 
-const SOCKET_PATH = join(homedir(), ".qore", "qore.sock");
+const SOCKET_PATH = join(process.env.QORE_HOME ?? join(homedir(), ".qore"), "qore.sock");
 
 export class SocketBridge {
   private server: any = null;

@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { ConnectionConfig } from "../core/vault/types.js";
 
-const SOCKET_PATH = join(homedir(), ".qore", "qore.sock");
+const SOCKET_PATH = join(process.env.QORE_HOME ?? join(homedir(), ".qore"), "qore.sock");
 
 export interface VaultListResponse {
   connections: Array<{

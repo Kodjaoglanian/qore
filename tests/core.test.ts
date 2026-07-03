@@ -1,11 +1,24 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { isDockerAvailable } from "../src/core/probe/docker.js";
 import { colors } from "../src/ui/theme.js";
 import { deriveKey, generateSalt, encrypt, decrypt, zeroKey } from "../src/core/vault/crypto.js";
 import { Vault } from "../src/core/vault/vault.js";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, rmSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+
+const TEST_QORE_DIR = join(tmpdir(), `qore-test-${Date.now()}`);
+
+beforeAll(() => {
+  process.env.QORE_HOME = TEST_QORE_DIR;
+  if (!existsSync(TEST_QORE_DIR)) mkdirSync(TEST_QORE_DIR, { recursive: true });
+});
+
+afterAll(() => {
+  delete process.env.QORE_HOME;
+  if (existsSync(TEST_QORE_DIR)) rmSync(TEST_QORE_DIR, { recursive: true, force: true });
+});
 
 describe("Docker Probe", () => {
   it("isDockerAvailable should return a boolean", async () => {
@@ -69,7 +82,7 @@ describe("Vault Crypto", () => {
 });
 
 describe("Vault", () => {
-  const vaultDir = join(homedir(), ".qore");
+  const vaultDir = TEST_QORE_DIR;
   const vaultFile = join(vaultDir, "vault.enc");
   const metaFile = join(vaultDir, "vault.meta.json");
 

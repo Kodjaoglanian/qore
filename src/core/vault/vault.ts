@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { deriveKey, encrypt, decrypt, generateSalt, zeroKey, type EncryptedPayload } from "./crypto.js";
 import type { ConnectionConfig, ConnectionGroup, VaultData, VaultMeta } from "./types.js";
 
-const QORE_DIR = join(homedir(), ".qore");
+const QORE_DIR = process.env.QORE_HOME ? process.env.QORE_HOME : join(homedir(), ".qore");
 const VAULT_FILE = join(QORE_DIR, "vault.enc");
 const META_FILE = join(QORE_DIR, "vault.meta.json");
 const BACKUP_DIR = join(QORE_DIR, "backups");

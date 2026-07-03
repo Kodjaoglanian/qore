@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { StorageProvider, BucketInfo, FileInfo } from "../types.js";
 
-const STORAGE_DIR = join(homedir(), ".qore", "storage");
-const DB_PATH = join(homedir(), ".qore", "metadata.db");
+const QORE_DIR = process.env.QORE_HOME ?? join(homedir(), ".qore");
+const STORAGE_DIR = join(QORE_DIR, "storage");
+const DB_PATH = join(QORE_DIR, "metadata.db");
 
 export class LocalS3Provider implements StorageProvider {
   readonly type = "local" as const;
@@ -19,7 +20,7 @@ export class LocalS3Provider implements StorageProvider {
   }
 
   private ensureDirs() {
-    const dirs = [STORAGE_DIR, join(homedir(), ".qore")];
+    const dirs = [STORAGE_DIR, QORE_DIR];
     for (const d of dirs) {
       if (!existsSync(d)) mkdirSync(d, { recursive: true });
     }
