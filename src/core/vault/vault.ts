@@ -5,20 +5,40 @@ import { randomUUID } from "node:crypto";
 import { deriveKey, encrypt, decrypt, generateSalt, zeroKey, type EncryptedPayload } from "./crypto.js";
 import type { ConnectionConfig, ConnectionGroup, VaultData, VaultMeta } from "./types.js";
 
-const QORE_DIR = process.env.QORE_HOME ? process.env.QORE_HOME : join(homedir(), ".qore");
-const VAULT_FILE = join(QORE_DIR, "vault.enc");
-const META_FILE = join(QORE_DIR, "vault.meta.json");
-const BACKUP_DIR = join(QORE_DIR, "backups");
+function qoreDir(): string {
+  return process.env.QORE_HOME ?? join(homedir(), ".qore");
+}
+function vaultFile(): string { return join(qoreDir(), "vault.enc"); }
+function metaFile(): string { return join(qoreDir(), "vault.meta.json"); }
+function backupDir(): string { return join(qoreDir(), "backups"); }
+function guardDir(): string { return join(qoreDir(), ".update-guard"); }
 const MAX_BACKUPS = 5;
 
 const VAULT_VERSION = 1;
+
+function tryRestoreFromGuard(): void {
+  const gd = guardDir();
+  const vf = vaultFile();
+  const mf = metaFile();
+  const guardVault = join(gd, "vault.enc");
+  const guardMeta = join(gd, "vault.meta.json");
+  if (!existsSync(vf) && existsSync(guardVault) && existsSync(guardMeta)) {
+    try {
+      const dir = qoreDir();
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      copyFileSync(guardVault, vf);
+      copyFileSync(guardMeta, mf);
+    } catch {}
+  }
+}
 
 export class Vault {
   private key: Buffer | null = null;
   private data: VaultData = { connections: [] };
 
   static isInitialized(): boolean {
-    return existsSync(VAULT_FILE) && existsSync(META_FILE);
+    tryRestoreFromGuard();
+    return existsSync(vaultFile()) && existsSync(metaFile());
   }
 
   static init(password: string): Vault {
@@ -247,27 +267,29 @@ export class Vault {
 
   private save(saltOverride?: Buffer): void {
     if (!this.key) throw new Error("Vault is locked");
-    if (existsSync(VAULT_FILE)) {
+    const vf = vaultFile();
+    const mf = metaFile();
+    if (existsSync(vf)) {
       backupVault();
     }
     const salt = saltOverride ?? this.readMetaSalt();
     const json = JSON.stringify(this.data);
     const payload = encrypt(json, this.key);
-    writeFileSync(VAULT_FILE, Buffer.concat([payload.nonce, payload.tag, payload.ciphertext]), { mode: 0o600 });
-    chmodSync(VAULT_FILE, 0o600);
-    const existingMeta = existsSync(META_FILE) ? this.readMeta() : null;
+    writeFileSync(vf, Buffer.concat([payload.nonce, payload.tag, payload.ciphertext]), { mode: 0o600 });
+    chmodSync(vf, 0o600);
+    const existingMeta = existsSync(mf) ? this.readMeta() : null;
     const meta: VaultMeta = {
       version: VAULT_VERSION,
       salt: salt.toString("base64"),
       nonce: payload.nonce.toString("base64"),
       createdAt: existingMeta?.createdAt ?? new Date().toISOString(),
     };
-    writeFileSync(META_FILE, JSON.stringify(meta, null, 2), { mode: 0o600 });
-    chmodSync(META_FILE, 0o600);
+    writeFileSync(mf, JSON.stringify(meta, null, 2), { mode: 0o600 });
+    chmodSync(mf, 0o600);
   }
 
   private readMeta(): VaultMeta {
-    return JSON.parse(readFileSync(META_FILE, "utf8"));
+    return JSON.parse(readFileSync(metaFile(), "utf8"));
   }
 
   private readMetaSalt(): Buffer {
@@ -275,7 +297,7 @@ export class Vault {
   }
 
   private readEncrypted(): EncryptedPayload {
-    const raw = readFileSync(VAULT_FILE);
+    const raw = readFileSync(vaultFile());
     const nonce = raw.subarray(0, 12);
     const tag = raw.subarray(12, 28);
     const ciphertext = raw.subarray(28);
@@ -284,29 +306,35 @@ export class Vault {
 }
 
 function ensureDir(): void {
-  if (!existsSync(QORE_DIR)) {
-    mkdirSync(QORE_DIR, { recursive: true });
-    chmodSync(QORE_DIR, 0o700);
+  const dir = qoreDir();
+  const bd = backupDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+    chmodSync(dir, 0o700);
   }
-  if (!existsSync(BACKUP_DIR)) {
-    mkdirSync(BACKUP_DIR, { recursive: true });
-    chmodSync(BACKUP_DIR, 0o700);
+  if (!existsSync(bd)) {
+    mkdirSync(bd, { recursive: true });
+    chmodSync(bd, 0o700);
   }
 }
 
 function backupVault(): void {
-  if (!existsSync(VAULT_FILE) || !existsSync(META_FILE)) return;
+  const vf = vaultFile();
+  const mf = metaFile();
+  const bd = backupDir();
+  if (!existsSync(vf) || !existsSync(mf)) return;
   ensureDir();
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const prefix = `vault-${ts}`;
-  copyFileSync(VAULT_FILE, join(BACKUP_DIR, `${prefix}.enc`));
-  copyFileSync(META_FILE, join(BACKUP_DIR, `${prefix}.meta.json`));
+  copyFileSync(vf, join(bd, `${prefix}.enc`));
+  copyFileSync(mf, join(bd, `${prefix}.meta.json`));
   pruneBackups();
 }
 
 function pruneBackups(): void {
-  if (!existsSync(BACKUP_DIR)) return;
-  const files = readdirSync(BACKUP_DIR)
+  const bd = backupDir();
+  if (!existsSync(bd)) return;
+  const files = readdirSync(bd)
     .filter(f => f.startsWith("vault-") && f.endsWith(".enc"))
     .sort()
     .reverse();
@@ -314,31 +342,34 @@ function pruneBackups(): void {
     const base = file.replace(/\.enc$/, "");
     try {
       const fs = require("node:fs");
-      fs.unlinkSync(join(BACKUP_DIR, file));
-      fs.unlinkSync(join(BACKUP_DIR, `${base}.meta.json`));
+      fs.unlinkSync(join(bd, file));
+      fs.unlinkSync(join(bd, `${base}.meta.json`));
     } catch {}
   }
 }
 
 export function listBackups(): { vault: string; meta: string; date: Date }[] {
-  if (!existsSync(BACKUP_DIR)) return [];
-  const files = readdirSync(BACKUP_DIR)
+  const bd = backupDir();
+  if (!existsSync(bd)) return [];
+  const files = readdirSync(bd)
     .filter(f => f.startsWith("vault-") && f.endsWith(".enc"))
     .sort()
     .reverse();
   return files.map(f => {
     const meta = f.replace(/\.enc$/, ".meta.json");
     const dateStr = f.replace(/^vault-/, "").replace(/\.enc$/, "").replace(/-/g, ":").replace(/:(\d{2})$/, ".\$1");
-    return { vault: join(BACKUP_DIR, f), meta: join(BACKUP_DIR, meta), date: new Date(dateStr) };
+    return { vault: join(bd, f), meta: join(bd, meta), date: new Date(dateStr) };
   });
 }
 
 export function restoreBackup(vaultPath: string, metaPath: string): boolean {
   if (!existsSync(vaultPath) || !existsSync(metaPath)) return false;
   backupVault();
-  copyFileSync(vaultPath, VAULT_FILE);
-  copyFileSync(metaPath, META_FILE);
-  chmodSync(VAULT_FILE, 0o600);
-  chmodSync(META_FILE, 0o600);
+  const vf = vaultFile();
+  const mf = metaFile();
+  copyFileSync(vaultPath, vf);
+  copyFileSync(metaPath, mf);
+  chmodSync(vf, 0o600);
+  chmodSync(mf, 0o600);
   return true;
 }

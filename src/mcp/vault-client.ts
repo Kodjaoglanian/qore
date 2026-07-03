@@ -2,7 +2,9 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { ConnectionConfig } from "../core/vault/types.js";
 
-const SOCKET_PATH = join(process.env.QORE_HOME ?? join(homedir(), ".qore"), "qore.sock");
+function socketPath(): string {
+  return join(process.env.QORE_HOME ?? join(homedir(), ".qore"), "qore.sock");
+}
 
 export interface VaultListResponse {
   connections: Array<{
@@ -35,7 +37,7 @@ export class VaultClient {
 
       try {
         Bun.connect({
-          unix: SOCKET_PATH,
+          unix: socketPath(),
           socket: {
             open(s: any) {
               const msg = JSON.stringify({ op, ...extra }) + "\n";
@@ -97,4 +99,4 @@ export class VaultClient {
   }
 }
 
-export { SOCKET_PATH };
+export { socketPath };

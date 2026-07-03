@@ -3,8 +3,10 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 
-const QORE_DIR = process.env.QORE_HOME ?? join(homedir(), ".qore");
-const SNIPPETS_FILE = join(QORE_DIR, "snippets.json");
+function qoreDir(): string {
+  return process.env.QORE_HOME ?? join(homedir(), ".qore");
+}
+function snippetsFile(): string { return join(qoreDir(), "snippets.json"); }
 
 export interface SnippetCommand {
   connId: string;
@@ -21,8 +23,8 @@ export interface Snippet {
 
 export function loadSnippets(): Snippet[] {
   try {
-    if (!existsSync(SNIPPETS_FILE)) return [];
-    const data = readFileSync(SNIPPETS_FILE, "utf-8");
+    if (!existsSync(snippetsFile())) return [];
+    const data = readFileSync(snippetsFile(), "utf-8");
     const parsed = JSON.parse(data);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -32,8 +34,9 @@ export function loadSnippets(): Snippet[] {
 
 export function saveSnippets(snippets: Snippet[]): void {
   try {
-    if (!existsSync(QORE_DIR)) mkdirSync(QORE_DIR, { recursive: true });
-    writeFileSync(SNIPPETS_FILE, JSON.stringify(snippets, null, 2), "utf-8");
+    const dir = qoreDir();
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(snippetsFile(), JSON.stringify(snippets, null, 2), "utf-8");
   } catch {}
 }
 

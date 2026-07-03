@@ -4,7 +4,9 @@ import { existsSync, unlinkSync, chmodSync } from "node:fs";
 import type { Vault } from "./vault.js";
 import type { ConnectionConfig } from "./types.js";
 
-const SOCKET_PATH = join(process.env.QORE_HOME ?? join(homedir(), ".qore"), "qore.sock");
+function socketPath(): string {
+  return join(process.env.QORE_HOME ?? join(homedir(), ".qore"), "qore.sock");
+}
 
 export class SocketBridge {
   private server: any = null;
@@ -16,13 +18,14 @@ export class SocketBridge {
   }
 
   start(): boolean {
-    if (existsSync(SOCKET_PATH)) {
-      try { unlinkSync(SOCKET_PATH); } catch {}
+    const sp = socketPath();
+    if (existsSync(sp)) {
+      try { unlinkSync(sp); } catch {}
     }
 
     try {
       this.server = Bun.listen({
-        unix: SOCKET_PATH,
+        unix: sp,
         socket: {
           open(_socket: any) {},
           data: (socket: any, data: Uint8Array) => this.handleData(socket, data),
@@ -30,7 +33,7 @@ export class SocketBridge {
         },
       } as any);
 
-      chmodSync(SOCKET_PATH, 0o600);
+      chmodSync(sp, 0o600);
 
       this.cleanupHandlers.push(() => this.stop());
       process.on("SIGTERM", () => this.cleanup());
@@ -48,8 +51,9 @@ export class SocketBridge {
       try { this.server.stop(true); } catch {}
       this.server = null;
     }
-    if (existsSync(SOCKET_PATH)) {
-      try { unlinkSync(SOCKET_PATH); } catch {}
+    const sp = socketPath();
+    if (existsSync(sp)) {
+      try { unlinkSync(sp); } catch {}
     }
   }
 
@@ -112,4 +116,4 @@ export class SocketBridge {
   }
 }
 
-export { SOCKET_PATH };
+export { socketPath };

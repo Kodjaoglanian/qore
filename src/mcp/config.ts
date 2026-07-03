@@ -1,8 +1,10 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-export const QORE_DIR = process.env.QORE_HOME ?? join(homedir(), ".qore");
-export const SOCKET_PATH = join(QORE_DIR, "qore.sock");
+export function qoreDir(): string {
+  return process.env.QORE_HOME ?? join(homedir(), ".qore");
+}
+export function socketPath(): string { return join(qoreDir(), "qore.sock"); }
 
 export interface McpConfig {
   socketPath: string;
@@ -11,7 +13,7 @@ export interface McpConfig {
 
 export function getMcpConfig(): McpConfig {
   return {
-    socketPath: process.env.QORE_SOCKET_PATH ?? SOCKET_PATH,
+    socketPath: process.env.QORE_SOCKET_PATH ?? socketPath(),
     logLevel: (process.env.QORE_LOG_LEVEL as McpConfig["logLevel"]) ?? "info",
   };
 }

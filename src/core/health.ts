@@ -3,8 +3,10 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 
-const QORE_DIR = process.env.QORE_HOME ?? join(homedir(), ".qore");
-const HEALTH_FILE = join(QORE_DIR, "health.json");
+function qoreDir(): string {
+  return process.env.QORE_HOME ?? join(homedir(), ".qore");
+}
+function healthFile(): string { return join(qoreDir(), "health.json"); }
 
 export interface HealthCheck {
   id: string;
@@ -34,8 +36,8 @@ interface HealthData {
 
 export function loadHealthData(): HealthData {
   try {
-    if (!existsSync(HEALTH_FILE)) return { config: DEFAULT_CONFIG, checks: [] };
-    const data = readFileSync(HEALTH_FILE, "utf-8");
+    if (!existsSync(healthFile())) return { config: DEFAULT_CONFIG, checks: [] };
+    const data = readFileSync(healthFile(), "utf-8");
     const parsed = JSON.parse(data);
     return {
       config: { ...DEFAULT_CONFIG, ...parsed.config },
@@ -48,8 +50,9 @@ export function loadHealthData(): HealthData {
 
 export function saveHealthData(data: HealthData): void {
   try {
-    if (!existsSync(QORE_DIR)) mkdirSync(QORE_DIR, { recursive: true });
-    writeFileSync(HEALTH_FILE, JSON.stringify(data, null, 2), "utf-8");
+    const dir = qoreDir();
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(healthFile(), JSON.stringify(data, null, 2), "utf-8");
   } catch {}
 }
 

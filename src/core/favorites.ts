@@ -2,13 +2,15 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-const QORE_DIR = process.env.QORE_HOME ?? join(homedir(), ".qore");
-const FAV_FILE = join(QORE_DIR, "favorites.json");
+function qoreDir(): string {
+  return process.env.QORE_HOME ?? join(homedir(), ".qore");
+}
+function favFile(): string { return join(qoreDir(), "favorites.json"); }
 
 export function loadFavorites(): string[] {
   try {
-    if (!existsSync(FAV_FILE)) return [];
-    const data = readFileSync(FAV_FILE, "utf-8");
+    if (!existsSync(favFile())) return [];
+    const data = readFileSync(favFile(), "utf-8");
     const parsed = JSON.parse(data);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -18,8 +20,9 @@ export function loadFavorites(): string[] {
 
 export function saveFavorites(favorites: string[]): void {
   try {
-    if (!existsSync(QORE_DIR)) mkdirSync(QORE_DIR, { recursive: true });
-    writeFileSync(FAV_FILE, JSON.stringify(favorites, null, 2), "utf-8");
+    const dir = qoreDir();
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(favFile(), JSON.stringify(favorites, null, 2), "utf-8");
   } catch {}
 }
 

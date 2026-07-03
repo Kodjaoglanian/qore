@@ -1,6 +1,15 @@
 import { version } from "../../package.json";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { existsSync, copyFileSync, unlinkSync, mkdirSync } from "node:fs";
 
 const REPO = "Kodjaoglanian/qore";
+function qoreDir(): string {
+  return process.env.QORE_HOME ?? join(homedir(), ".qore");
+}
+function vaultFile(): string { return join(qoreDir(), "vault.enc"); }
+function metaFile(): string { return join(qoreDir(), "vault.meta.json"); }
+function guardDir(): string { return join(qoreDir(), ".update-guard"); }
 const PURPLE = "\x1b[38;2;163;112;247m";
 const GREEN = "\x1b[38;2;72;187;120m";
 const RED = "\x1b[38;2;220;53;69m";
@@ -245,6 +254,19 @@ async function doUpdate(): Promise<void> {
     printChangelog(release.body);
   }
 
+  // Phase 1.5: Vault guard — back up vault files before touching anything
+  const vf = vaultFile();
+  const mf = metaFile();
+  const gd = guardDir();
+  const vaultExists = existsSync(vf) && existsSync(mf);
+  if (vaultExists) {
+    try {
+      if (!existsSync(gd)) mkdirSync(gd, { recursive: true });
+      copyFileSync(vf, join(gd, "vault.enc"));
+      copyFileSync(mf, join(gd, "vault.meta.json"));
+    } catch {}
+  }
+
   // Phase 2: Prepare
   console.log("");
   printSection("Preparing Update");
@@ -342,6 +364,29 @@ async function doUpdate(): Promise<void> {
     }
     console.log("");
     process.exit(1);
+  }
+
+  // Phase 4.5: Vault guard — verify vault still exists, restore if missing
+  if (vaultExists) {
+    const vaultStillExists = existsSync(vaultFile()) && existsSync(metaFile());
+    if (!vaultStillExists) {
+      printWarn("Vault files missing after update — restoring from guard");
+      try {
+        const dir = qoreDir();
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        copyFileSync(join(guardDir(), "vault.enc"), vaultFile());
+        copyFileSync(join(guardDir(), "vault.meta.json"), metaFile());
+        printOk("Vault restored successfully");
+      } catch (restoreErr) {
+        printErr(`Failed to restore vault: ${(restoreErr as Error).message}`);
+        printWarn(`Manual recovery: copy files from ${guardDir()} to ${qoreDir()}`);
+      }
+    }
+    // Clean up guard
+    try {
+      unlinkSync(join(guardDir(), "vault.enc"));
+      unlinkSync(join(guardDir(), "vault.meta.json"));
+    } catch {}
   }
 
   // Phase 5: Done

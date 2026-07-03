@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { StorageProvider, BucketInfo, FileInfo } from "../types.js";
 
-const QORE_DIR = process.env.QORE_HOME ?? join(homedir(), ".qore");
-const STORAGE_DIR = join(QORE_DIR, "storage");
-const DB_PATH = join(QORE_DIR, "metadata.db");
+function qoreDir(): string {
+  return process.env.QORE_HOME ?? join(homedir(), ".qore");
+}
+function storageDir(): string { return join(qoreDir(), "storage"); }
+function dbPath(): string { return join(qoreDir(), "metadata.db"); }
 
 export class LocalS3Provider implements StorageProvider {
   readonly type = "local" as const;
@@ -14,13 +16,15 @@ export class LocalS3Provider implements StorageProvider {
 
   constructor() {
     this.ensureDirs();
-    this.db = new Database(DB_PATH, { create: true });
+    this.db = new Database(dbPath(), { create: true });
     this.db.exec("PRAGMA journal_mode = WAL");
     this.initSchema();
   }
 
   private ensureDirs() {
-    const dirs = [STORAGE_DIR, QORE_DIR];
+    const sd = storageDir();
+    const qd = qoreDir();
+    const dirs = [sd, qd];
     for (const d of dirs) {
       if (!existsSync(d)) mkdirSync(d, { recursive: true });
     }
@@ -59,7 +63,7 @@ export class LocalS3Provider implements StorageProvider {
   }
 
   async createBucket(name: string): Promise<void> {
-    const dir = join(STORAGE_DIR, name);
+    const dir = join(storageDir(), name);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     this.db.query("INSERT OR IGNORE INTO buckets (name, created_at) VALUES (?, ?)").run(
       name,
@@ -68,7 +72,7 @@ export class LocalS3Provider implements StorageProvider {
   }
 
   async deleteBucket(name: string): Promise<void> {
-    const dir = join(STORAGE_DIR, name);
+    const dir = join(storageDir(), name);
     if (existsSync(dir)) {
       const files = readdirSync(dir);
       for (const f of files) unlinkSync(join(dir, f));
@@ -78,7 +82,7 @@ export class LocalS3Provider implements StorageProvider {
   }
 
   async uploadFile(bucket: string, key: string, data: Buffer): Promise<void> {
-    const dir = join(STORAGE_DIR, bucket);
+    const dir = join(storageDir(), bucket);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const filePath = join(dir, key);
     writeFileSync(filePath, data);
@@ -90,7 +94,7 @@ export class LocalS3Provider implements StorageProvider {
   }
 
   async downloadFile(bucket: string, key: string): Promise<Buffer> {
-    const filePath = join(STORAGE_DIR, bucket, key);
+    const filePath = join(storageDir(), bucket, key);
     return Buffer.from(readFileSync(filePath));
   }
 
@@ -106,7 +110,7 @@ export class LocalS3Provider implements StorageProvider {
   }
 
   async deleteFile(bucket: string, key: string): Promise<void> {
-    const filePath = join(STORAGE_DIR, bucket, key);
+    const filePath = join(storageDir(), bucket, key);
     if (existsSync(filePath)) unlinkSync(filePath);
     this.db.query("DELETE FROM files WHERE bucket = ? AND key = ?").run(bucket, key);
   }
