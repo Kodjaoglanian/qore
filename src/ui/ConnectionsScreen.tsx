@@ -8,7 +8,7 @@ import { ShortcutBar } from "./components/ShortcutBar.js";
 import { Breadcrumb } from "./components/Breadcrumb.js";
 import { ProgressBar } from "./components/ProgressBar.js";
 import { Vault } from "../core/vault/vault.js";
-import type { ConnectionConfig, ConnectionType } from "../core/vault/types.js";
+import type { ConnectionConfig, ConnectionGroup, ConnectionType } from "../core/vault/types.js";
 import { CONNECTION_LABELS, CONNECTION_ICONS, DEFAULT_PORTS } from "../core/vault/types.js";
 import { getManager } from "../core/connections/manager.js";
 
@@ -25,7 +25,7 @@ interface ConnectionsScreenProps {
   activeConns?: ActiveSession[];
 }
 
-type View = "list" | "add" | "edit" | "changepw" | "export" | "import" | "unlock";
+type View = "list" | "add" | "edit" | "changepw" | "export" | "import" | "unlock" | "groups";
 
 export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, activeConns = [] }: ConnectionsScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalSize();
@@ -66,6 +66,15 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
     useTls: false,
   });
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Group state
+  const [groups, setGroups] = useState<ConnectionGroup[]>(vaultReady ? vault!.getGroups() : []);
+  const [groupFormStep, setGroupFormStep] = useState(0);
+  const [groupFormData, setGroupFormData] = useState<{ name: string; selectedIds: Set<string> }>({ name: "", selectedIds: new Set() });
+
+  const refreshGroups = useCallback(() => {
+    if (vault && vault.isUnlocked()) setGroups(vault.getGroups());
+  }, [vault]);
 
   const refreshList = useCallback(() => {
     if (vault && vault.isUnlocked()) setConnections(vault.getConnections());
@@ -396,6 +405,55 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
       return;
     }
 
+    if (view === "groups") {
+      if (groupFormStep === 0) {
+        if (!trimmed) {
+          setStatus("[!] Group name cannot be empty");
+          return;
+        }
+        if (groups.some((g) => g.name === trimmed)) {
+          setStatus(`[!] Group "${trimmed}" already exists`);
+          return;
+        }
+        setGroupFormData((prev) => ({ ...prev, name: trimmed }));
+        setGroupFormStep(1);
+        setStatus(`Select connections to add to "${trimmed}" (type number or 'done'):`);
+        return;
+      }
+      if (groupFormStep === 1) {
+        if (trimmed === "done" || trimmed === "save") {
+          if (!vault) return;
+          const g = vault.addGroup(groupFormData.name);
+          for (const cid of groupFormData.selectedIds) {
+            vault.addToGroup(g.id, cid);
+          }
+          refreshGroups();
+          setView("list");
+          setGroupFormStep(0);
+          setStatus(`[ok] Created group "${groupFormData.name}" with ${groupFormData.selectedIds.size} connection(s)`);
+          return;
+        }
+        const idx = parseInt(trimmed, 10) - 1;
+        if (isNaN(idx) || idx < 0 || idx >= connections.length) {
+          setStatus(`[!] Invalid number. Type 1-${connections.length} or 'done'`);
+          return;
+        }
+        const conn = connections[idx];
+        setGroupFormData((prev) => {
+          const newIds = new Set(prev.selectedIds);
+          if (newIds.has(conn.id)) {
+            newIds.delete(conn.id);
+            setStatus(`Removed "${conn.name}" from selection`);
+          } else {
+            newIds.add(conn.id);
+            setStatus(`Added "${conn.name}" to selection (${newIds.size} selected)`);
+          }
+          return { ...prev, selectedIds: newIds };
+        });
+        return;
+      }
+    }
+
     // Empty submit = connect to selected
     if (!trimmed) {
       if (connections.length > 0) {
@@ -494,10 +552,84 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
 
     if (command === "refresh") {
       refreshList();
+      refreshGroups();
       setStatus("Refreshed");
       return;
     }
-  }, [view, connections, selectedIdx, vault, onBack, refreshList, handleFormInput, handlePwInput, handleVaultSubmit, testConnection, onConnect]);
+
+    if (command === "groups") {
+      refreshGroups();
+      setView("groups");
+      setStatus(null);
+      return;
+    }
+
+    if (command === "group") {
+      setView("groups");
+      setGroupFormStep(0);
+      setGroupFormData({ name: "", selectedIds: new Set() });
+      setStatus("Enter group name (e.g. production, staging, dev):");
+      return;
+    }
+
+    if (command === "group-add") {
+      const groupName = parts[1];
+      if (!groupName || !vault || connections.length === 0) {
+        setStatus("[!] Usage: group-add <name> (select a connection first)");
+        return;
+      }
+      const g = groups.find((g) => g.name === groupName);
+      if (!g) {
+        setStatus(`[!] Group "${groupName}" not found. Use 'group' to create it.`);
+        return;
+      }
+      const conn = connections[selectedIdx];
+      vault.addToGroup(g.id, conn.id);
+      refreshGroups();
+      setStatus(`[ok] Added "${conn.name}" to group "${groupName}"`);
+      return;
+    }
+
+    if (command === "group-rm") {
+      const groupName = parts.slice(1).join(" ");
+      if (!groupName || !vault) {
+        setStatus("[!] Usage: group-rm <name>");
+        return;
+      }
+      const g = groups.find((g) => g.name === groupName);
+      if (!g) {
+        setStatus(`[!] Group "${groupName}" not found`);
+        return;
+      }
+      vault.removeGroup(g.id);
+      refreshGroups();
+      setStatus(`[ok] Removed group "${groupName}"`);
+      return;
+    }
+
+    if (command === "group-open") {
+      const groupName = parts.slice(1).join(" ");
+      if (!groupName || !vault) {
+        setStatus("[!] Usage: group-open <name>");
+        return;
+      }
+      const g = groups.find((g) => g.name === groupName);
+      if (!g) {
+        setStatus(`[!] Group "${groupName}" not found`);
+        return;
+      }
+      const conns = vault.getGroupConnections(g.id);
+      if (conns.length === 0) {
+        setStatus(`[!] Group "${groupName}" has no connections`);
+        return;
+      }
+      for (const c of conns) {
+        onConnect(c);
+      }
+      setStatus(`[ok] Opened ${conns.length} connection(s) from group "${groupName}"`);
+      return;
+    }
+  }, [view, connections, selectedIdx, vault, onBack, refreshList, refreshGroups, handleFormInput, handlePwInput, handleVaultSubmit, testConnection, onConnect, groups]);
 
   useInput((input, key) => {
     if (key.escape) {
@@ -515,6 +647,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
         setBundlePw("");
         setBundleData("");
         setExportedBundle(null);
+        setGroupFormStep(0);
         setStatus(null);
       } else {
         onBack();
@@ -533,7 +666,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
   return (
     <Box flexDirection="column" width={termWidth} height={termHeight - 4} paddingX={margin} overflow="hidden">
       <Box marginBottom={1} height={1}>
-        <Breadcrumb items={["Home", view === "add" ? "Add Connection" : view === "edit" ? "Edit Connection" : view === "unlock" ? (vaultMode === "unlock" ? "Unlock Vault" : "Create Vault") : "Connections"]} />
+        <Breadcrumb items={["Home", view === "add" ? "Add Connection" : view === "edit" ? "Edit Connection" : view === "unlock" ? (vaultMode === "unlock" ? "Unlock Vault" : "Create Vault") : view === "groups" ? "Connection Groups" : "Connections"]} />
       </Box>
 
       <Box flexDirection="column" height={availH} overflow="hidden">
@@ -591,6 +724,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
               ) : (
                 connections.map((conn, i) => {
                   const openCount = activeConns.filter((s) => s.conn.id === conn.id).length;
+                  const connGroups = groups.filter((g) => g.connectionIds.includes(conn.id));
                   return (
                   <Box key={conn.id} flexDirection="row">
                     <Text color={i === selectedIdx ? colors.purple : colors.textDim}>
@@ -603,6 +737,9 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
                     <Text color={i === selectedIdx ? colors.purpleBright : colors.textMuted}>
                       {"  "}{conn.type} · {conn.host}:{conn.port}
                     </Text>
+                    {connGroups.length > 0 && (
+                      <Text color={colors.cyan}>{"  [:"}{connGroups.map((g) => g.name).join(", ")}{":]"}</Text>
+                    )}
                     {openCount > 0 && (
                       <Text color={colors.green} bold>{"  [open" + (openCount > 1 ? ` x${openCount}` : "") + "]"}</Text>
                     )}
@@ -769,13 +906,78 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
             </Box>
           </StyledBox>
         )}
+
+        {view === "groups" && (
+          <StyledBox title="Connection Groups" focused padding={1} height={availH} overflow="hidden">
+            <Box flexDirection="column">
+              {groupFormStep === 0 && groups.length === 0 && (
+                <Box flexDirection="column">
+                  <Text color={colors.textMuted}>{"  No groups created."}</Text>
+                  <Box marginTop={1}>
+                    <Text color={colors.purple} bold>{"  Type a name to create one (e.g. production)"}</Text>
+                  </Box>
+                </Box>
+              )}
+
+              {groupFormStep === 0 && groups.length > 0 && (
+                <Box flexDirection="column">
+                  <Text color={colors.textDim}>{"  Groups:"}</Text>
+                  {groups.map((g, i) => (
+                    <Box key={g.id} flexDirection="row">
+                      <Text color={colors.textDim}>{"  "}{i + 1}{"."}</Text>
+                      <Text color={colors.purpleBright}>{"  "}{g.name}</Text>
+                      <Text color={colors.textMuted}>{"  ("}{g.connectionIds.length}{" connections)"}</Text>
+                    </Box>
+                  ))}
+                  <Box marginTop={1}>
+                    <Text color={colors.textDim}>{"  Commands: group <name> · group-add <name> · group-rm <name> · group-open <name> · back"}</Text>
+                  </Box>
+                </Box>
+              )}
+
+              {groupFormStep === 1 && (
+                <Box flexDirection="column">
+                  <Text color={colors.purple} bold>{"  Creating group: "}{groupFormData.name}</Text>
+                  <Box marginTop={1}>
+                    <Text color={colors.textDim}>{"  Select connections (type number to toggle, 'done' to save):"}</Text>
+                  </Box>
+                  {connections.map((conn, i) => {
+                    const selected = groupFormData.selectedIds.has(conn.id);
+                    return (
+                      <Box key={conn.id} flexDirection="row">
+                        <Text color={selected ? colors.green : colors.textDim}>
+                          {"  "}{selected ? "[ok]" : "[  ]"}{" "}{i + 1}{"."}
+                        </Text>
+                        <Text color={selected ? colors.textBright : colors.textMuted}>
+                          {" "}{CONNECTION_ICONS[conn.type]} {conn.name}
+                        </Text>
+                        <Text color={colors.textMuted}>{"  "}{conn.type} · {conn.host}</Text>
+                      </Box>
+                    );
+                  })}
+                  <Box marginTop={1}>
+                    <Text color={colors.purple} bold>{"  "}{groupFormData.selectedIds.size}{" selected · type 'done' to save"}</Text>
+                  </Box>
+                </Box>
+              )}
+
+              {status && (
+                <Box marginTop={1}>
+                  <Text color={status.startsWith("[ok]") ? colors.green : status.startsWith("[!]") ? colors.red : colors.textMuted}>
+                    {"  "}{status}
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          </StyledBox>
+        )}
       </Box>
 
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
           masked={isPasswordStep()}
-          placeholder={view === "unlock" ? (vaultMode === "confirm" ? "Confirm password" : "Master password") : view === "add" || view === "edit" ? getFormPlaceholder(formStep) : view === "changepw" ? getPwPlaceholder(pwStep) : view === "export" ? (exportedBundle ? "done - press esc to return" : "Encryption password (min 8 chars)") : view === "import" ? (bundleData ? "Decryption password" : "Paste bundle string") : "connect · add · edit · test · rm <n> · changepw · export · import · back"}
+          placeholder={view === "unlock" ? (vaultMode === "confirm" ? "Confirm password" : "Master password") : view === "add" || view === "edit" ? getFormPlaceholder(formStep) : view === "changepw" ? getPwPlaceholder(pwStep) : view === "export" ? (exportedBundle ? "done - press esc to return" : "Encryption password (min 8 chars)") : view === "import" ? (bundleData ? "Decryption password" : "Paste bundle string") : view === "groups" ? (groupFormStep === 0 ? "group name or 'back'" : groupFormStep === 1 ? "number to toggle · 'done' to save" : "groups · group · group-add · group-rm · group-open · back") : "connect · add · edit · test · rm <n> · groups · changepw · export · import · back"}
         />
       </Box>
 

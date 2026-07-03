@@ -23,8 +23,16 @@ export interface VaultMeta {
   createdAt: string;
 }
 
+export interface ConnectionGroup {
+  id: string;
+  name: string;
+  connectionIds: string[];
+  createdAt: string;
+}
+
 export interface VaultData {
   connections: ConnectionConfig[];
+  groups?: ConnectionGroup[];
 }
 
 export const CONNECTION_LABELS: Record<ConnectionType, string> = {

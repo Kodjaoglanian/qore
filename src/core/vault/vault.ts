@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { deriveKey, encrypt, decrypt, generateSalt, zeroKey, type EncryptedPayload } from "./crypto.js";
-import type { ConnectionConfig, VaultData, VaultMeta } from "./types.js";
+import type { ConnectionConfig, ConnectionGroup, VaultData, VaultMeta } from "./types.js";
 
 const QORE_DIR = join(homedir(), ".qore");
 const VAULT_FILE = join(QORE_DIR, "vault.enc");
@@ -56,6 +56,7 @@ export class Vault {
       const payload = vault.readEncrypted();
       const json = decrypt(payload, key);
       vault.data = JSON.parse(json);
+      if (!vault.data.groups) vault.data.groups = [];
       vault.key = key;
       return vault;
     } catch {
@@ -102,8 +103,71 @@ export class Vault {
     const before = this.data.connections.length;
     this.data.connections = this.data.connections.filter((c) => c.id !== id);
     const removed = this.data.connections.length < before;
+    if (removed) {
+      if (this.data.groups) {
+        for (const g of this.data.groups) {
+          g.connectionIds = g.connectionIds.filter((cid) => cid !== id);
+        }
+      }
+      this.save();
+    }
+    return removed;
+  }
+
+  getGroups(): ConnectionGroup[] {
+    return this.data.groups ?? [];
+  }
+
+  addGroup(name: string): ConnectionGroup {
+    if (!this.data.groups) this.data.groups = [];
+    const group: ConnectionGroup = {
+      id: randomUUID(),
+      name,
+      connectionIds: [],
+      createdAt: new Date().toISOString(),
+    };
+    this.data.groups.push(group);
+    this.save();
+    return group;
+  }
+
+  removeGroup(id: string): boolean {
+    if (!this.data.groups) return false;
+    const before = this.data.groups.length;
+    this.data.groups = this.data.groups.filter((g) => g.id !== id);
+    const removed = this.data.groups.length < before;
     if (removed) this.save();
     return removed;
+  }
+
+  addToGroup(groupId: string, connectionId: string): boolean {
+    if (!this.data.groups) return false;
+    const g = this.data.groups.find((g) => g.id === groupId);
+    if (!g) return false;
+    if (g.connectionIds.includes(connectionId)) return false;
+    g.connectionIds.push(connectionId);
+    this.save();
+    return true;
+  }
+
+  removeFromGroup(groupId: string, connectionId: string): boolean {
+    if (!this.data.groups) return false;
+    const g = this.data.groups.find((g) => g.id === groupId);
+    if (!g) return false;
+    const before = g.connectionIds.length;
+    g.connectionIds = g.connectionIds.filter((cid) => cid !== connectionId);
+    const removed = g.connectionIds.length < before;
+    if (removed) this.save();
+    return removed;
+  }
+
+  getGroupConnections(groupId: string): ConnectionConfig[] {
+    if (!this.data.groups) return [];
+    const g = this.data.groups.find((g) => g.id === groupId);
+    if (!g) return [];
+    return g.connectionIds
+      .map((cid) => this.data.connections.find((c) => c.id === cid))
+      .filter((c): c is ConnectionConfig => c !== undefined);
   }
 
   changePassword(oldPassword: string, newPassword: string): boolean {
