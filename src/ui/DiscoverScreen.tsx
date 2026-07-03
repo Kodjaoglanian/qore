@@ -537,7 +537,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
     const list = activeList;
     if (list.length === 0) {
       const emptyMsg = section === "containers"
-        ? (probe?.dockerInfo === null ? "Docker socket not available or permission denied." : filter ? "No containers match filter." : "No containers found.")
+        ? (probe?.dockerInfo === null ? "Docker: permission denied. Run: sudo usermod -aG docker $USER && relogin" : filter ? "No containers match filter." : "No containers found.")
         : filter ? "No items match filter." : "No items found.";
       return <Text color={colors.textMuted}>  {emptyMsg}</Text>;
     }
@@ -646,11 +646,10 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
           const icon = SECTION_ICONS[s];
           const label = SECTION_LABELS[s];
           const countStr = count > 0 ? String(count) : (s === "overview" || s === "system") ? "·" : "0";
+          const line = `${active ? "▸" : " "} ${num}:${icon} ${truncate(label, 8).padEnd(8)} ${countStr.padStart(3)}`;
           return (
-            <Box key={s} width={sidebarW}>
-              <Text color={active ? colors.purpleBright : colors.textMuted}>{active ? "▸ " : "  "}</Text>
-              <Text color={active ? colors.textBright : colors.textDim} bold={active}>{num}:{icon} {truncate(label, 10).padEnd(10)}</Text>
-              <Text color={active ? colors.purple : colors.textMuted}> {countStr.padStart(3)}</Text>
+            <Box key={s} width={sidebarW} overflow="hidden">
+              <Text color={active ? colors.textBright : colors.textDim} bold={active} wrap="truncate">{line}</Text>
             </Box>
           );
         })}
