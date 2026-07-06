@@ -3,7 +3,6 @@ import { Box, Text, useApp, useInput, useStdin } from "ink";
 import { colors } from "./theme.js";
 import pkg from "../../package.json" with { type: "json" };
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
-import { useMouse } from "./hooks/useMouse.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
 import { DiscoverScreen } from "./DiscoverScreen.js";
 import { HelpScreen } from "./HelpScreen.js";
@@ -30,7 +29,6 @@ export function App() {
   const { exit } = useApp();
   const { setRawMode } = useStdin();
   const { width: termWidth, height: termHeight } = useTerminalSize();
-  useMouse();
   const [screen, setScreen] = useState<Screen>("welcome");
   const [probe, setProbe] = useState<ProbeResult | null>(null);
   const [scanning, setScanning] = useState(false);
