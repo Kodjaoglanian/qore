@@ -19,6 +19,7 @@ import type { GitManager, GitFileStatus, GitBranchInfo, GitLogEntry, GitDiffResu
 import type { VmwareManager, VmSummary, HostSummary, DatastoreSummary, NetworkSummary, SnapshotTree } from "../core/connections/vmware.js";
 import { TerminalOverlay } from "./components/TerminalOverlay.js";
 import { loadFavorites, addFavorite, removeFavorite } from "../core/favorites.js";
+import { setMouseHandler } from "./mouseBus.js";
 
 interface ServiceScreenProps {
   conn: ConnectionConfig;
@@ -35,7 +36,7 @@ const BOX_OVERHEAD = 5;
 const HEADER = 2;
 const FOOTER = 4;
 
-export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = true, heightOffset = 0 }: ServiceScreenProps) {
+export function ServiceScreen({ conn, onBack, onClose, onNewSession, tabCount, focused = true, heightOffset = 0 }: ServiceScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalSize();
   const effectiveHeight = termHeight - heightOffset;
   const margin = Math.max(1, Math.floor(termWidth * 0.03));
@@ -1885,6 +1886,29 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = t
   const clampedScroll = Math.min(scrollOffset, maxScroll);
   const visibleItems = items.slice(clampedScroll, clampedScroll + maxItems);
   const itemLabel = conn.type === "s3" ? "Buckets" : conn.type === "redis" ? "Keys" : conn.type === "http" ? "Endpoints" : conn.type === "ssh" ? "Commands" : conn.type === "git" ? "Branches & Commands" : conn.type === "vmware" ? "Virtual Machines" : "Databases";
+
+  useEffect(() => {
+    if (!focused) return;
+    setMouseHandler((event) => {
+      if (event.type === "rightClick") {
+        if (overlay) {
+          setOverlay(null);
+          setOverlayContent([]);
+        } else {
+          onBack();
+        }
+        return;
+      }
+      if (event.type !== "click" || overlay || ptyHandle) return;
+      const tabsOff = (tabCount ?? 1) > 1 ? 2 : 0;
+      const listStartY = 8 + tabsOff;
+      const visibleIdx = event.y - listStartY;
+      if (visibleIdx >= 0 && visibleIdx < visibleItems.length) {
+        setSelectedIdx(clampedScroll + visibleIdx);
+      }
+    });
+    return () => setMouseHandler(null);
+  }, [focused, overlay, ptyHandle, tabCount, clampedScroll, visibleItems.length, onBack]);
 
   const overlayLines = overlayContent.slice(overlayScroll, overlayScroll + Math.max(1, availH - BOX_OVERHEAD));
 

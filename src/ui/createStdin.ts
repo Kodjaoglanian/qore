@@ -1,4 +1,5 @@
 import { PassThrough } from "node:stream";
+import { dispatchMouse } from "./mouseBus.js";
 
 export function createMouseStdin(): NodeJS.ReadStream {
   const stdin = new PassThrough();
@@ -70,16 +71,18 @@ export function createMouseStdin(): NodeJS.ReadStream {
       }
 
       const btn = parseInt(match[1], 10);
+      const x = parseInt(match[2], 10);
+      const y = parseInt(match[3], 10);
       const type = match[4];
 
       if (btn >= 64) {
-        // Wheel: 64=up 65=down
+        // Wheel: 64=up 65=down → inject arrow keys
         if (btn === 64) injectKey("\x1b[A");
         else if (btn === 65) injectKey("\x1b[B");
       } else if (type === "M") {
-        // Press: 0=left 2=right
-        if (btn === 0) injectKey("\r");
-        else if (btn === 2) injectKey("\x1b");
+        // Press: 0=left 2=right → dispatch with coordinates
+        if (btn === 0) dispatchMouse({ type: "click", x, y });
+        else if (btn === 2) dispatchMouse({ type: "rightClick", x, y });
       }
 
       buf = buf.slice(match[0].length);
