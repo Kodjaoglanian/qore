@@ -1,4 +1,4 @@
-export type ConnectionType = "redis" | "postgres" | "mysql" | "mongo" | "s3" | "http" | "ssh" | "git";
+export type ConnectionType = "redis" | "postgres" | "mysql" | "mongo" | "s3" | "http" | "ssh" | "git" | "vmware";
 
 export interface ConnectionConfig {
   id: string;
@@ -44,6 +44,7 @@ export const CONNECTION_LABELS: Record<ConnectionType, string> = {
   http: "HTTP API",
   ssh: "SSH Remote",
   git: "Git Repository",
+  vmware: "VMware vSphere",
 };
 
 export const CONNECTION_ICONS: Record<ConnectionType, string> = {
@@ -55,6 +56,7 @@ export const CONNECTION_ICONS: Record<ConnectionType, string> = {
   http: "[H]",
   ssh: "[SSH]",
   git: "[G]",
+  vmware: "[VM]",
 };
 
 export const DEFAULT_PORTS: Record<ConnectionType, number> = {
@@ -66,4 +68,5 @@ export const DEFAULT_PORTS: Record<ConnectionType, number> = {
   http: 80,
   ssh: 22,
   git: 0,
+  vmware: 443,
 };

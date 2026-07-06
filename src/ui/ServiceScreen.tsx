@@ -16,6 +16,7 @@ import type { DatabaseManager, StorageManager, QueryResult, ObjectInfo } from ".
 import type { HttpManager } from "../core/connections/http.js";
 import type { SshManager, PtyHandle } from "../core/connections/ssh.js";
 import type { GitManager, GitFileStatus, GitBranchInfo, GitLogEntry, GitDiffResult } from "../core/connections/git.js";
+import type { VmwareManager, VmSummary, HostSummary, DatastoreSummary, NetworkSummary, SnapshotTree } from "../core/connections/vmware.js";
 import { TerminalOverlay } from "./components/TerminalOverlay.js";
 import { loadFavorites, addFavorite, removeFavorite } from "../core/favorites.js";
 
@@ -147,6 +148,22 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = t
         setGitStatus(statusFiles);
         setGitBranches(branches);
         setGitLog(log);
+      } else if (conn.type === "vmware") {
+        const vmware = manager as VmwareManager;
+        const vms = await vmware.listVms(conn);
+        const vmItems: string[] = [];
+        for (const vm of vms.slice(0, 200)) {
+          const state = vm.power_state === "POWERED_ON" ? "ON " : vm.power_state === "POWERED_OFF" ? "OFF" : vm.power_state?.slice(0, 4) ?? "?";
+          vmItems.push(`  ${vm.name}  [${state}]  ${vm.cpu_count}c  ${(vm.memory_size_MiB / 1024).toFixed(0)}GB  (${vm.vm})`);
+        }
+        vmItems.push("--- Commands ---");
+        vmItems.push("vms", "hosts", "datastores", "networks");
+        vmItems.push("info <vm>", "info-host <host>");
+        vmItems.push("power-on <vm>", "power-off <vm>", "reset <vm>", "suspend <vm>");
+        vmItems.push("snapshots <vm>", "snapshot <vm> [name]", "revert <vm> <snap>", "rmsnap <vm> <snap>");
+        vmItems.push("events", "alarms", "task <id>");
+        vmItems.push("info", "logs", "refresh", "back", "close", "new");
+        setItems(vmItems);
       } else {
         const db = manager as DatabaseManager;
         try {
@@ -232,7 +249,7 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = t
       return;
     }
 
-    if (command === "info") {
+    if (command === "info" && !parts[1]) {
       const lines = Object.entries(info).map(([k, v]) => `  ${k}: ${v}`);
       setOverlayContent(lines);
       setOverlay("info");
@@ -1344,6 +1361,276 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = t
       }
     }
 
+    // VMware commands
+    if (conn.type === "vmware") {
+      const vmware = getManager(conn.type) as VmwareManager;
+
+      if (command === "vms") {
+        try {
+          const vms = await vmware.listVms(conn);
+          const lines: string[] = [];
+          for (const vm of vms) {
+            const state = vm.power_state === "POWERED_ON" ? "ON " : vm.power_state === "POWERED_OFF" ? "OFF" : (vm.power_state ?? "?").slice(0, 4);
+            lines.push(`  ${vm.name}  [${state}]  ${vm.cpu_count}c  ${(vm.memory_size_MiB / 1024).toFixed(0)}GB  (${vm.vm})`);
+          }
+          if (lines.length === 0) lines.push("  No VMs found");
+          setOverlayContent(lines);
+          setOverlay("virtual machines");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if (command === "hosts") {
+        try {
+          const hosts = await vmware.listHosts(conn);
+          const lines: string[] = [];
+          for (const h of hosts) {
+            const state = h.connection_state === "CONNECTED" ? "connected" : h.connection_state ?? "?";
+            const memGB = (h.memory.size_MiB / 1024).toFixed(0);
+            lines.push(`  ${h.name}  [${state}]  ${h.cpu.cores}c  ${memGB}GB  (${h.host})`);
+          }
+          if (lines.length === 0) lines.push("  No hosts found");
+          setOverlayContent(lines);
+          setOverlay("esxi hosts");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if (command === "datastores") {
+        try {
+          const dss = await vmware.listDatastores(conn);
+          const lines: string[] = [];
+          for (const ds of dss) {
+            const freeGB = (ds.free_space / 1073741824).toFixed(1);
+            const capGB = (ds.capacity / 1073741824).toFixed(1);
+            lines.push(`  ${ds.name}  ${ds.type}  ${freeGB}/${capGB} GB free  (${ds.datastore})`);
+          }
+          if (lines.length === 0) lines.push("  No datastores found");
+          setOverlayContent(lines);
+          setOverlay("datastores");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if (command === "networks") {
+        try {
+          const nets = await vmware.listNetworks(conn);
+          const lines: string[] = [];
+          for (const n of nets) {
+            lines.push(`  ${n.name}  ${n.type}  (${n.network})`);
+          }
+          if (lines.length === 0) lines.push("  No networks found");
+          setOverlayContent(lines);
+          setOverlay("networks");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if (command === "info" && parts[1]) {
+        try {
+          const vmId = await resolveVmId(vmware, conn, parts[1]);
+          if (!vmId) {
+            setStatus(`[!] VM not found: ${parts[1]}`);
+            return;
+          }
+          const vm = await vmware.getVm(conn, vmId);
+          const lines: string[] = [];
+          lines.push(`  Name:    ${vm.name}`);
+          lines.push(`  State:   ${vm.power_state}`);
+          lines.push(`  CPU:     ${vm.hardware.cpu.count} vCPU`);
+          lines.push(`  Memory:  ${(vm.hardware.memory_size_MiB / 1024).toFixed(1)} GB`);
+          if (vm.guest?.os_type) lines.push(`  OS:      ${vm.guest.os_type}`);
+          if (vm.guest?.ip_address) lines.push(`  IP:      ${vm.guest.ip_address}`);
+          if (vm.guest?.host_name) lines.push(`  Host:    ${vm.guest.host_name}`);
+          setOverlayContent(lines);
+          setOverlay(`vm info: ${vm.name}`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if (command === "info-host" && parts[1]) {
+        try {
+          const host = await vmware.getHost(conn, parts[1]);
+          const lines: string[] = [];
+          const h = host as Record<string, unknown>;
+          const name = (h.name as string) ?? "unknown";
+          const connState = (h.connection_state as string) ?? "unknown";
+          const power = (h.power_state as string) ?? "unknown";
+          lines.push(`  Name:       ${name}`);
+          lines.push(`  Connection: ${connState}`);
+          lines.push(`  Power:      ${power}`);
+          const cpu = h.cpu as Record<string, number> | undefined;
+          const mem = h.memory as Record<string, number> | undefined;
+          if (cpu?.cores) lines.push(`  CPU cores:  ${cpu.cores}`);
+          if (mem?.size_MiB) lines.push(`  Memory:     ${(mem.size_MiB / 1024).toFixed(1)} GB`);
+          setOverlayContent(lines);
+          setOverlay(`host info: ${name}`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if ((command === "power-on" || command === "power-off" || command === "reset" || command === "suspend") && parts[1]) {
+        try {
+          const vmId = await resolveVmId(vmware, conn, parts[1]);
+          if (!vmId) {
+            setStatus(`[!] VM not found: ${parts[1]}`);
+            return;
+          }
+          let taskId: string | null = null;
+          let action = "";
+          if (command === "power-on") { taskId = await vmware.powerOn(conn, vmId); action = "Power on"; }
+          else if (command === "power-off") { taskId = await vmware.powerOff(conn, vmId); action = "Power off"; }
+          else if (command === "reset") { taskId = await vmware.resetVm(conn, vmId); action = "Reset"; }
+          else if (command === "suspend") { taskId = await vmware.suspendVm(conn, vmId); action = "Suspend"; }
+          if (taskId) {
+            setStatus(`[ok] ${action} initiated for ${parts[1]} — task: ${taskId}`);
+          } else {
+            setStatus(`[ok] ${action} completed for ${parts[1]}`);
+          }
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if (command === "snapshots" && parts[1]) {
+        try {
+          const vmId = await resolveVmId(vmware, conn, parts[1]);
+          if (!vmId) {
+            setStatus(`[!] VM not found: ${parts[1]}`);
+            return;
+          }
+          const tree = await vmware.listSnapshots(conn, vmId);
+          const lines: string[] = [];
+          const walk = (node: SnapshotTree | null | undefined, depth: number) => {
+            if (!node) return;
+            const indent = "  " + "  ".repeat(depth);
+            const time = node.create_time ? `  ${node.create_time}` : "";
+            lines.push(`${indent}${node.name}  (${node.snapshot})${time}`);
+            if (node.description) lines.push(`${indent}  ${node.description}`);
+            if (node.child_snapshots) {
+              for (const child of node.child_snapshots) walk(child, depth + 1);
+            }
+          };
+          if (tree) walk(tree, 0);
+          if (lines.length === 0) lines.push("  No snapshots");
+          setOverlayContent(lines);
+          setOverlay(`snapshots: ${parts[1]}`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if (command === "snapshot" && parts[1]) {
+        try {
+          const vmId = await resolveVmId(vmware, conn, parts[1]);
+          if (!vmId) {
+            setStatus(`[!] VM not found: ${parts[1]}`);
+            return;
+          }
+          const snapName = rawParts[2] || `snap-${Date.now()}`;
+          const taskId = await vmware.createSnapshot(conn, vmId, snapName);
+          if (taskId) {
+            setStatus(`[ok] Snapshot "${snapName}" creating for ${parts[1]} — task: ${taskId}`);
+          } else {
+            setStatus(`[ok] Snapshot "${snapName}" created for ${parts[1]}`);
+          }
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if (command === "revert" && parts[1] && parts[2]) {
+        try {
+          const vmId = await resolveVmId(vmware, conn, parts[1]);
+          if (!vmId) {
+            setStatus(`[!] VM not found: ${parts[1]}`);
+            return;
+          }
+          const taskId = await vmware.revertSnapshot(conn, vmId, parts[2]);
+          if (taskId) {
+            setStatus(`[ok] Reverting ${parts[1]} to ${parts[2]} — task: ${taskId}`);
+          } else {
+            setStatus(`[ok] Reverted ${parts[1]} to ${parts[2]}`);
+          }
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if (command === "rmsnap" && parts[1] && parts[2]) {
+        try {
+          const vmId = await resolveVmId(vmware, conn, parts[1]);
+          if (!vmId) {
+            setStatus(`[!] VM not found: ${parts[1]}`);
+            return;
+          }
+          const taskId = await vmware.deleteSnapshot(conn, vmId, parts[2]);
+          if (taskId) {
+            setStatus(`[ok] Deleting snapshot ${parts[2]} on ${parts[1]} — task: ${taskId}`);
+          } else {
+            setStatus(`[ok] Deleted snapshot ${parts[2]} on ${parts[1]}`);
+          }
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if (command === "events" || command === "alarms") {
+        try {
+          const lines = await vmware.getLogs(conn, { tail: 100 });
+          setOverlayContent(lines);
+          setOverlay(command === "events" ? "events" : "alarms");
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+
+      if (command === "task" && parts[1]) {
+        try {
+          const task = await vmware.getTask(conn, parts[1]);
+          const lines: string[] = [];
+          lines.push(`  Task:     ${parts[1]}`);
+          lines.push(`  Status:   ${task.status}`);
+          if (task.progress !== undefined) lines.push(`  Progress: ${task.progress}%`);
+          if (task.start_time) lines.push(`  Started:  ${task.start_time}`);
+          if (task.completion_time) lines.push(`  Finished: ${task.completion_time}`);
+          if (task.error?.messages?.[0]?.default_message) lines.push(`  Error:    ${task.error.messages[0].default_message}`);
+          setOverlayContent(lines);
+          setOverlay(`task: ${parts[1]}`);
+          setOverlayScroll(0);
+        } catch (err) {
+          setStatus(`[!] ${(err as Error).message}`);
+        }
+        return;
+      }
+    }
+
     // Database commands (postgres, mongo, mysql)
     if (conn.type === "postgres" || conn.type === "mysql" || conn.type === "mongo") {
       const db = getManager(conn.type) as DatabaseManager;
@@ -1597,7 +1884,7 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, focused = t
   const maxScroll = Math.max(0, items.length - maxItems);
   const clampedScroll = Math.min(scrollOffset, maxScroll);
   const visibleItems = items.slice(clampedScroll, clampedScroll + maxItems);
-  const itemLabel = conn.type === "s3" ? "Buckets" : conn.type === "redis" ? "Keys" : conn.type === "http" ? "Endpoints" : conn.type === "ssh" ? "Commands" : conn.type === "git" ? "Branches & Commands" : "Databases";
+  const itemLabel = conn.type === "s3" ? "Buckets" : conn.type === "redis" ? "Keys" : conn.type === "http" ? "Endpoints" : conn.type === "ssh" ? "Commands" : conn.type === "git" ? "Branches & Commands" : conn.type === "vmware" ? "Virtual Machines" : "Databases";
 
   const overlayLines = overlayContent.slice(overlayScroll, overlayScroll + Math.max(1, availH - BOX_OVERHEAD));
 
@@ -1774,8 +2061,16 @@ function getPlaceholder(type: string): string {
     case "http": return "get <path> · post <path> <body> · put <path> <body> · patch <path> <body> · delete <path> · info · logs · refresh · back · close · new · quit";
     case "ssh": return "shell · exec <cmd> · ports · firewall · top · netstat · tail <f> · edit <f> · security-audit · snapshot · diff <s1> <s2> · deploy <script> · git-status · compose <up|down|ps|logs> · ls · cat · find · services · docker ps · docker logs · users · cron · pkgs · kill · ping · upload/download · logs · reboot yes · back · close · new · quit";
     case "git": return "status · diff [--staged] · log · branches · checkout <b> · branch <n> · merge <b> · rebase <b> · stage [f] · unstage [f] · commit <msg> · amend · fetch · pull · push · cherry-pick <h> · revert <h> · blame <f> · tags · tag <n> · remotes · exec <args> · info · refresh · back · close · new · quit";
+    case "vmware": return "vms · hosts · datastores · networks · info <vm> · info-host <host> · power-on <vm> · power-off <vm> · reset <vm> · suspend <vm> · snapshots <vm> · snapshot <vm> [name] · revert <vm> <snap> · rmsnap <vm> <snap> · events · alarms · task <id> · logs · info · refresh · back · close · new · quit";
     default: return "info · refresh · back · close · new · quit";
   }
+}
+
+async function resolveVmId(vmware: VmwareManager, conn: ConnectionConfig, nameOrId: string): Promise<string | null> {
+  if (nameOrId.startsWith("vm-")) return nameOrId;
+  const vms = await vmware.listVms(conn);
+  const found = vms.find(v => v.name === nameOrId || v.name.toLowerCase() === nameOrId.toLowerCase());
+  return found?.vm ?? null;
 }
 
 function formatSize(bytes: number): string {
