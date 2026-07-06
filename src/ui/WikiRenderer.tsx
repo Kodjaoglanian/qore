@@ -285,7 +285,7 @@ export function WikiContent({ text, contentWidth }: WikiContentProps) {
 
           case "code": {
             const lineCount = block.code?.split("\n").length || 0;
-            const codeHeight = Math.min(lineCount + 2, 30);
+            const codeHeight = Math.min(lineCount + 5, 30);
             return (
               <Box key={i} marginBottom={1}>
                 <StyledBox title={block.lang || "code"} focused={false} padding={1} height={codeHeight} borderColor={colors.borderMuted}>

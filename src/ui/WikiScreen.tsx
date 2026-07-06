@@ -53,14 +53,18 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
       const pageList = parsePageIndex(homeMd);
       setPages(pageList);
       if (pageList.length > 0) {
-        loadPage(pageList[0].slug);
+        const md = await fetchPage(pageList[0].slug);
+        setContent(md);
+        setPageTitle(extractPageTitle(md));
+        setCurrentIdx(0);
+        setSidebarIdx(0);
       } else {
         setContent("# Wiki\n\nNo pages found.");
         setPageTitle("Wiki");
-        setLoading(false);
       }
     } catch (err) {
       setError((err as Error).message);
+    } finally {
       setLoading(false);
     }
   }, []);
@@ -89,7 +93,6 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
     loadHome();
   }, [loadHome]);
 
-  const currentPage = pages[currentIdx];
   const totalPages = pages.length;
 
   const prevPage = useCallback(() => {
@@ -101,6 +104,10 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
   }, [currentIdx, pages, loadPage]);
 
   useInput((input, key) => {
+    if (input === "r" && error) {
+      loadHome();
+      return;
+    }
     if (key.escape || input === "q") {
       if (sidebarFocus) {
         setSidebarFocus(false);
@@ -137,6 +144,12 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
   const sidebarMax = Math.max(1, availH - 4);
 
   const sidebarVisible = useMemo(() => {
+    interface SidebarItem {
+      text: string;
+      type: "category" | "page";
+      pageIdx?: number;
+    }
+    const items: SidebarItem[] = [];
     const groups: Array<{ category: string; pages: WikiPage[] }> = [];
     for (const p of sidebarPages) {
       const existing = groups.find((g) => g.category === p.category);
@@ -144,21 +157,29 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
       else groups.push({ category: p.category, pages: [p] });
     }
 
-    const totalLines: string[] = [];
     for (const g of groups) {
-      totalLines.push(`  ${g.category}`);
-      for (const p of g.pages) {
-        const marker = p.slug === currentPage?.slug ? "→" : " ";
-        totalLines.push(` ${marker} ${p.name}`);
+      items.push({ text: `  ${g.category}`, type: "category" });
+      for (let pi = 0; pi < g.pages.length; pi++) {
+        const pageIdx = sidebarPages.indexOf(g.pages[pi]);
+        const p = g.pages[pi];
+        const marker = pageIdx === currentIdx ? "→" : " ";
+        items.push({ text: ` ${marker} ${p.name}`, type: "page", pageIdx });
       }
     }
 
-    const maxScroll = Math.max(0, totalLines.length - sidebarMax);
-    const offset = Math.min(Math.max(0, sidebarIdx - 2), maxScroll);
-    const visible = totalLines.slice(offset, offset + sidebarMax);
+    const maxScroll = Math.max(0, items.length - sidebarMax);
+    let scrollOffset = sidebarIdx;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].pageIdx === sidebarIdx) {
+        scrollOffset = i;
+        break;
+      }
+    }
+    const offset = Math.min(Math.max(0, scrollOffset - 2), maxScroll);
+    const visible = items.slice(offset, offset + sidebarMax);
 
-    return { lines: visible, offset, maxScroll, totalLines: totalLines.length };
-  }, [sidebarPages, currentPage, sidebarIdx, sidebarMax]);
+    return { items: visible, offset, total: items.length };
+  }, [sidebarPages, currentIdx, sidebarIdx, sidebarMax]);
 
   const contentLines = useMemo(() => {
     if (!content) return [];
@@ -178,18 +199,21 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
         <Box width={sidebarWidth} flexShrink={0} marginRight={1}>
           <StyledBox title="Pages" focused={sidebarFocus} borderColor={sidebarFocus ? colors.purple : colors.borderMuted} padding={1} height={availH} overflow="hidden">
             <Box flexDirection="column" overflow="hidden">
-              {sidebarVisible.lines.map((line, i) => {
-                const isCategory = !line.trim().startsWith("→") && !line.trim().startsWith(" ") && line.trim().length > 0;
-                const isCurrent = line.trim().startsWith("→");
-                const isSelected = line.trim().startsWith(" ") && sidebarFocus && i >= sidebarVisible.offset && i <= sidebarVisible.offset + sidebarMax;
+              {sidebarVisible.items.map((item, i) => {
+                const isSelected = sidebarFocus && item.type === "page" && item.pageIdx === sidebarIdx;
+                const color = item.type === "category" ? colors.textDim
+                  : item.text.includes("→") ? colors.purpleBright
+                  : isSelected ? colors.purple
+                  : colors.textMuted;
+                const bold = item.type === "category" || item.text.includes("→");
                 return (
-                  <Text key={i} color={isCategory ? colors.textDim : isCurrent ? colors.purpleBright : isSelected ? colors.purple : colors.textMuted} bold={isCurrent || isCategory}>
-                    {line}
+                  <Text key={i} color={color} bold={bold}>
+                    {item.text}
                   </Text>
                 );
               })}
-              {sidebarVisible.totalLines > sidebarMax && (
-                <ScrollIndicator offset={sidebarVisible.offset} total={sidebarVisible.totalLines} visible={sidebarMax} />
+              {sidebarVisible.total > sidebarMax && (
+                <ScrollIndicator offset={sidebarVisible.offset} total={sidebarVisible.total} visible={sidebarMax} />
               )}
             </Box>
           </StyledBox>
