@@ -1,9 +1,20 @@
-import React from "react";
-import { Box, Text, useInput } from "ink";
+import React, { useMemo } from "react";
+import { Box, Text } from "ink";
 import { StyledBox } from "./components/Box.js";
 import { Breadcrumb } from "./components/Breadcrumb.js";
 import { colors } from "./theme.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
+
+interface HelpRow {
+  cmd: string;
+  desc: string;
+}
+
+interface HelpSection {
+  title: string;
+  color: string;
+  rows: HelpRow[];
+}
 
 interface HelpScreenProps {
   onCommand: (cmd: string) => void;
@@ -13,11 +24,7 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalSize();
   const margin = Math.max(1, Math.floor(termWidth * 0.05));
 
-  useInput((input, key) => {
-    if (key.escape || input === "q") {
-      onCommand("back");
-    }
-  });
+  const sections = useMemo(() => createSections(), []);
 
   return (
     <Box flexDirection="column" width={termWidth} height={termHeight - 4} overflow="hidden" paddingX={margin} justifyContent="center">
@@ -26,132 +33,15 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
       </Box>
 
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
-        <StyledBox title="Commands" focused padding={1} marginBottom={1}>
-          <Box flexDirection="column">
-            <CmdRow cmd="discover" desc="scan ports, Docker & daemons" />
-            <CmdRow cmd="connections" desc="manage saved connections" />
-            <CmdRow cmd="dashboard" desc="multi-service status, health & sparklines" />
-            <CmdRow cmd="vault" desc="unlock / create credential vault" />
-            <CmdRow cmd="help" desc="show this help screen" />
-            <CmdRow cmd="back" desc="go back to welcome" />
-            <CmdRow cmd="quit" desc="exit Qore" />
-          </Box>
-        </StyledBox>
-
-        <StyledBox title="Docker Actions" focused={false} padding={1} marginBottom={1}>
-          <Box flexDirection="column">
-            <CmdRow cmd="start" desc="start selected container" />
-            <CmdRow cmd="stop" desc="stop selected container" />
-            <CmdRow cmd="restart" desc="restart selected container" />
-            <CmdRow cmd="rm" desc="remove selected container" />
-            <CmdRow cmd="logs" desc="view container logs" />
-            <CmdRow cmd="inspect" desc="inspect container details" />
-            <CmdRow cmd="prune" desc="remove stopped containers" />
-            <CmdRow cmd="refresh" desc="re-scan all resources" />
-          </Box>
-        </StyledBox>
-
-        <StyledBox title="Connections" focused={false} padding={1} marginBottom={1}>
-          <Box flexDirection="column">
-            <CmdRow cmd="add" desc="add a new connection" />
-            <CmdRow cmd="connect <n>" desc="connect to saved connection #n" />
-            <CmdRow cmd="test <n>" desc="test connection #n" />
-            <CmdRow cmd="rm <n>" desc="remove connection #n" />
-            <CmdRow cmd="groups" desc="view connection groups" />
-            <CmdRow cmd="group <name>" desc="create a new group" />
-            <CmdRow cmd="group-add <name>" desc="add selected conn to group" />
-            <CmdRow cmd="group-rm <name>" desc="remove a group" />
-            <CmdRow cmd="group-open <name>" desc="open all conns in group" />
-            <CmdRow cmd="snippet <name>" desc="create a command snippet" />
-            <CmdRow cmd="snippets" desc="list saved snippets" />
-            <CmdRow cmd="run <name>" desc="execute a saved snippet" />
-            <CmdRow cmd="snippet-rm <name>" desc="remove a snippet" />
-          </Box>
-        </StyledBox>
-
-        <StyledBox title="Redis" focused={false} padding={1} marginBottom={1}>
-          <Box flexDirection="column">
-            <CmdRow cmd="get <key>" desc="get value for key" />
-            <CmdRow cmd="set <k> <v>" desc="set key to value" />
-            <CmdRow cmd="del <key>" desc="delete a key" />
-            <CmdRow cmd="keys <pattern>" desc="list keys matching pattern" />
-            <CmdRow cmd="flushdb" desc="clear current database" />
-          </Box>
-        </StyledBox>
-
-        <StyledBox title="S3" focused={false} padding={1} marginBottom={1}>
-          <Box flexDirection="column">
-            <CmdRow cmd="ls <bucket>" desc="list objects in bucket" />
-            <CmdRow cmd="mkbucket <name>" desc="create a new bucket" />
-            <CmdRow cmd="rmbucket <name>" desc="delete a bucket" />
-          </Box>
-        </StyledBox>
-
-        <StyledBox title="Postgres / MySQL / MongoDB" focused={false} padding={1} marginBottom={1}>
-          <Box flexDirection="column">
-            <CmdRow cmd="tables <db>" desc="list tables/collections" />
-            <CmdRow cmd="desc <db> <table>" desc="describe table structure" />
-            <CmdRow cmd="count <db> <table>" desc="count rows in table" />
-            <CmdRow cmd="sample <db> <t> [n]" desc="show sample rows (default 10)" />
-            <CmdRow cmd="size <db>" desc="table sizes in database" />
-            <CmdRow cmd="indexes <db> <table>" desc="list indexes" />
-            <CmdRow cmd="views <db>" desc="list views" />
-            <CmdRow cmd="funcs <db>" desc="list functions" />
-            <CmdRow cmd="conns" desc="active connections" />
-            <CmdRow cmd="queries" desc="running queries" />
-            <CmdRow cmd="query <db> <sql>" desc="run custom query" />
-          </Box>
-        </StyledBox>
-
-        <StyledBox title="Git" focused={false} padding={1} marginBottom={1}>
-          <Box flexDirection="column">
-            <CmdRow cmd="status" desc="show staged, unstaged, untracked" />
-            <CmdRow cmd="diff [--staged]" desc="show working tree or staged diff" />
-            <CmdRow cmd="log" desc="commit graph with branch tree" />
-            <CmdRow cmd="branches" desc="list all branches with details" />
-            <CmdRow cmd="checkout <b>" desc="switch to branch" />
-            <CmdRow cmd="branch <n>" desc="create and switch to branch" />
-            <CmdRow cmd="stage [f]" desc="stage files or all changes" />
-            <CmdRow cmd="commit <msg>" desc="create a commit" />
-            <CmdRow cmd="merge <b>" desc="merge branch into current" />
-            <CmdRow cmd="push [r] [b]" desc="push to remote" />
-            <CmdRow cmd="pull [r] [b]" desc="pull from remote" />
-            <CmdRow cmd="blame <f>" desc="show blame for file" />
-            <CmdRow cmd="tags" desc="list tags" />
-            <CmdRow cmd="exec <args>" desc="run raw git command" />
-          </Box>
-        </StyledBox>
-
-        <StyledBox title="SSH" focused={false} padding={1} marginBottom={1}>
-          <Box flexDirection="column">
-            <CmdRow cmd="shell" desc="open interactive terminal (bash)" />
-            <CmdRow cmd="exec <cmd>" desc="run command on remote server" />
-            <CmdRow cmd="tail <file> [-f]" desc="view or follow file" />
-            <CmdRow cmd="edit <file>" desc="edit file in nano/vim" />
-            <CmdRow cmd="docker ps" desc="list containers" />
-            <CmdRow cmd="compose <cmd>" desc="docker compose operations" />
-            <CmdRow cmd="security-audit" desc="run security audit" />
-            <CmdRow cmd="snapshot" desc="capture server state" />
-          </Box>
-        </StyledBox>
-
-        <StyledBox title="Dashboard" focused={false} padding={1} marginBottom={1}>
-          <Box flexDirection="column">
-            <CmdRow cmd="refresh" desc="re-check all connections" />
-            <CmdRow cmd="auto" desc="toggle auto-refresh" />
-          </Box>
-        </StyledBox>
-
-        <StyledBox title="Navigation Keys" focused={false} padding={1}>
-          <Box flexDirection="column">
-            <KeyRow keyLabel="Up/Dn" desc="select item" />
-            <KeyRow keyLabel="pg up/down" desc="scroll one page" />
-            <KeyRow keyLabel="tab" desc="switch section" />
-            <KeyRow keyLabel="Enter" desc="execute typed command" />
-            <KeyRow keyLabel="esc" desc="back / close overlay" />
-            <KeyRow keyLabel="^c" desc="quit Qore" />
-          </Box>
-        </StyledBox>
+        {sections.map((s) => (
+          <StyledBox key={s.title} title={s.title} focused padding={1} marginBottom={1} borderColor={s.color}>
+            <Box flexDirection="column">
+              {s.rows.map((r) => (
+                <Row key={r.cmd} cmd={r.cmd} desc={r.desc} color={s.color} />
+              ))}
+            </Box>
+          </StyledBox>
+        ))}
       </Box>
 
       <Box marginTop={1}>
@@ -163,20 +53,153 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
   );
 }
 
-function CmdRow({ cmd, desc }: { cmd: string; desc: string }) {
+function Row({ cmd, desc, color }: { cmd: string; desc: string; color: string }) {
   return (
     <Box justifyContent="space-between">
-      <Text color={colors.purple} bold>{"  "}{cmd.padEnd(18)}</Text>
-      <Text color={colors.textMuted}>{desc.slice(0, 45)}</Text>
+      <Text color={color} bold>{"  "}{cmd.padEnd(22)}</Text>
+      <Text color={colors.textMuted}>{desc.slice(0, 50)}</Text>
     </Box>
   );
 }
 
-function KeyRow({ keyLabel, desc }: { keyLabel: string; desc: string }) {
-  return (
-    <Box justifyContent="space-between">
-      <Text color={colors.purple} bold>{"  "}{keyLabel.padEnd(14)}</Text>
-      <Text color={colors.textMuted}>{desc.slice(0, 45)}</Text>
-    </Box>
-  );
+function createSections(): HelpSection[] {
+  return [
+    {
+      title: "Commands",
+      color: colors.purple,
+      rows: [
+        { cmd: "discover", desc: "scan ports, Docker & daemons" },
+        { cmd: "connections", desc: "manage saved connections" },
+        { cmd: "dashboard", desc: "multi-service status, health & sparklines" },
+        { cmd: "vault", desc: "unlock / create credential vault" },
+        { cmd: "help", desc: "show this help screen" },
+        { cmd: "back", desc: "go back to welcome" },
+        { cmd: "quit", desc: "exit Qore" },
+      ],
+    },
+    {
+      title: "Docker Actions",
+      color: colors.cyan,
+      rows: [
+        { cmd: "start", desc: "start selected container" },
+        { cmd: "stop", desc: "stop selected container" },
+        { cmd: "restart", desc: "restart selected container" },
+        { cmd: "rm", desc: "remove selected container" },
+        { cmd: "logs", desc: "view container logs" },
+        { cmd: "inspect", desc: "inspect container details" },
+        { cmd: "prune", desc: "remove stopped containers" },
+        { cmd: "refresh", desc: "re-scan all resources" },
+      ],
+    },
+    {
+      title: "Connections",
+      color: colors.purple,
+      rows: [
+        { cmd: "add", desc: "add a new connection" },
+        { cmd: "connect <n>", desc: "connect to saved connection #n" },
+        { cmd: "test <n>", desc: "test connection #n" },
+        { cmd: "rm <n>", desc: "remove connection #n" },
+        { cmd: "groups", desc: "view connection groups" },
+        { cmd: "group <name>", desc: "create a new group" },
+        { cmd: "group-add <name>", desc: "add selected conn to group" },
+        { cmd: "group-rm <name>", desc: "remove a group" },
+        { cmd: "group-open <name>", desc: "open all conns in group" },
+        { cmd: "snippet <name>", desc: "create a command snippet" },
+        { cmd: "snippets", desc: "list saved snippets" },
+        { cmd: "run <name>", desc: "execute a saved snippet" },
+        { cmd: "snippet-rm <name>", desc: "remove a snippet" },
+      ],
+    },
+    {
+      title: "Redis",
+      color: colors.blue,
+      rows: [
+        { cmd: "get <key>", desc: "get value for key" },
+        { cmd: "set <k> <v>", desc: "set key to value" },
+        { cmd: "del <key>", desc: "delete a key" },
+        { cmd: "keys <pattern>", desc: "list keys matching pattern" },
+        { cmd: "flushdb", desc: "clear current database" },
+      ],
+    },
+    {
+      title: "S3",
+      color: colors.blue,
+      rows: [
+        { cmd: "ls <bucket>", desc: "list objects in bucket" },
+        { cmd: "mkbucket <name>", desc: "create a new bucket" },
+        { cmd: "rmbucket <name>", desc: "delete a bucket" },
+      ],
+    },
+    {
+      title: "Postgres / MySQL / MongoDB",
+      color: colors.green,
+      rows: [
+        { cmd: "tables <db>", desc: "list tables/collections" },
+        { cmd: "desc <db> <table>", desc: "describe table structure" },
+        { cmd: "count <db> <table>", desc: "count rows in table" },
+        { cmd: "sample <db> <t> [n]", desc: "show sample rows (default 10)" },
+        { cmd: "size <db>", desc: "table sizes in database" },
+        { cmd: "indexes <db> <table>", desc: "list indexes" },
+        { cmd: "views <db>", desc: "list views" },
+        { cmd: "funcs <db>", desc: "list functions" },
+        { cmd: "conns", desc: "active connections" },
+        { cmd: "queries", desc: "running queries" },
+        { cmd: "query <db> <sql>", desc: "run custom query" },
+      ],
+    },
+    {
+      title: "Git",
+      color: colors.yellow,
+      rows: [
+        { cmd: "status", desc: "show staged, unstaged, untracked" },
+        { cmd: "diff [--staged]", desc: "show working tree or staged diff" },
+        { cmd: "log", desc: "commit graph with branch tree" },
+        { cmd: "branches", desc: "list all branches with details" },
+        { cmd: "checkout <b>", desc: "switch to branch" },
+        { cmd: "branch <n>", desc: "create and switch to branch" },
+        { cmd: "stage [f]", desc: "stage files or all changes" },
+        { cmd: "commit <msg>", desc: "create a commit" },
+        { cmd: "merge <b>", desc: "merge branch into current" },
+        { cmd: "push [r] [b]", desc: "push to remote" },
+        { cmd: "pull [r] [b]", desc: "pull from remote" },
+        { cmd: "blame <f>", desc: "show blame for file" },
+        { cmd: "tags", desc: "list tags" },
+        { cmd: "exec <args>", desc: "run raw git command" },
+      ],
+    },
+    {
+      title: "SSH",
+      color: colors.cyan,
+      rows: [
+        { cmd: "shell", desc: "open interactive terminal (bash)" },
+        { cmd: "exec <cmd>", desc: "run command on remote server" },
+        { cmd: "tail <file> [-f]", desc: "view or follow file" },
+        { cmd: "edit <file>", desc: "edit file in nano/vim" },
+        { cmd: "docker ps", desc: "list containers" },
+        { cmd: "compose <cmd>", desc: "docker compose operations" },
+        { cmd: "security-audit", desc: "run security audit" },
+        { cmd: "snapshot", desc: "capture server state" },
+      ],
+    },
+    {
+      title: "Dashboard",
+      color: colors.green,
+      rows: [
+        { cmd: "refresh", desc: "re-check all connections" },
+        { cmd: "auto", desc: "toggle auto-refresh" },
+      ],
+    },
+    {
+      title: "Navigation Keys",
+      color: colors.textMuted,
+      rows: [
+        { cmd: "Up/Dn", desc: "select item" },
+        { cmd: "pg up/down", desc: "scroll one page" },
+        { cmd: "tab", desc: "switch section" },
+        { cmd: "Enter", desc: "execute typed command" },
+        { cmd: "esc", desc: "back / close overlay" },
+        { cmd: "^c", desc: "quit Qore" },
+      ],
+    },
+  ];
 }
