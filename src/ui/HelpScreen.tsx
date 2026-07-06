@@ -189,6 +189,7 @@ function createSections(): HelpSection[] {
         { cmd: "discover (containers)", desc: "scan ports, Docker & daemons" },
         { cmd: "connections (conn, vault)", desc: "manage saved connections & vault" },
         { cmd: "dashboard (dash)", desc: "multi-service status & health checks" },
+        { cmd: "wiki (docs, book)", desc: "Qore documentation book from GitHub Wiki" },
         { cmd: "help", desc: "show this help screen" },
         { cmd: "back (home)", desc: "go back to previous screen" },
         { cmd: "quit (exit)", desc: "exit Qore" },
