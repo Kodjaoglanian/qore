@@ -5,7 +5,7 @@ import { Breadcrumb } from "./components/Breadcrumb.js";
 import { ScrollIndicator } from "./components/ScrollIndicator.js";
 import { colors } from "./theme.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
-import { WikiContent, parsePageIndex, extractPageTitle } from "./WikiRenderer.js";
+import { WikiContent, parsePageIndex, parseMarkdown, blockHeight, extractPageTitle, type WikiBlock } from "./WikiRenderer.js";
 
 const WIKI_BASE = "https://raw.githubusercontent.com/wiki/Kodjaoglanian/qore/";
 
@@ -34,32 +34,34 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
   const [pages, setPages] = useState<WikiPage[]>([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [sidebarIdx, setSidebarIdx] = useState(0);
-  const [content, setContent] = useState("");
+  const [rawContent, setRawContent] = useState("");
   const [pageTitle, setPageTitle] = useState("Wiki");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [contentScroll, setContentScroll] = useState(0);
+  const [blockOffset, setBlockOffset] = useState(0);
   const [sidebarFocus, setSidebarFocus] = useState(false);
 
   const sidebarWidth = Math.min(30, Math.max(18, Math.floor(termWidth * 0.28)));
-  const contentWidth = termWidth - sidebarWidth - margin * 2 - 4;
+  const contentWidth = Math.max(30, termWidth - sidebarWidth - margin * 2 - 4);
   const availH = Math.max(8, termHeight - 4 - 5);
+  const contentInnerH = availH - 4;
 
   const loadHome = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setBlockOffset(0);
     try {
       const homeMd = await fetchPage("Home");
       const pageList = parsePageIndex(homeMd);
       setPages(pageList);
       if (pageList.length > 0) {
         const md = await fetchPage(pageList[0].slug);
-        setContent(md);
+        setRawContent(md);
         setPageTitle(extractPageTitle(md));
         setCurrentIdx(0);
         setSidebarIdx(0);
       } else {
-        setContent("# Wiki\n\nNo pages found.");
+        setRawContent("# Wiki\n\nNo pages found.");
         setPageTitle("Wiki");
       }
     } catch (err) {
@@ -72,10 +74,10 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
   const loadPage = useCallback(async (slug: string) => {
     setLoading(true);
     setError(null);
-    setContentScroll(0);
+    setBlockOffset(0);
     try {
       const md = await fetchPage(slug);
-      setContent(md);
+      setRawContent(md);
       setPageTitle(extractPageTitle(md));
       const idx = pages.findIndex((p) => p.slug === slug);
       if (idx >= 0) {
@@ -103,6 +105,40 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
     if (currentIdx < pages.length - 1) loadPage(pages[currentIdx + 1].slug);
   }, [currentIdx, pages, loadPage]);
 
+  const blocks = useMemo<WikiBlock[]>(() => {
+    if (!rawContent) return [];
+    return parseMarkdown(rawContent);
+  }, [rawContent]);
+
+  const { visibleBlocks, maxOffset, totalHeight } = useMemo(() => {
+    const total = blocks.reduce((sum, b) => sum + blockHeight(b, contentWidth), 0);
+
+    let maxOff = 0;
+    for (let start = 0; start < blocks.length; start++) {
+      let used = 0;
+      let count = 0;
+      for (let i = start; i < blocks.length; i++) {
+        const h = blockHeight(blocks[i], contentWidth);
+        if (used + h > contentInnerH && count > 0) break;
+        used += h;
+        count++;
+      }
+      if (count > 0) maxOff = start;
+    }
+
+    const offset = Math.min(blockOffset, maxOff);
+    const visible: WikiBlock[] = [];
+    let used = 0;
+    for (let i = offset; i < blocks.length; i++) {
+      const h = blockHeight(blocks[i], contentWidth);
+      if (used + h > contentInnerH && visible.length > 0) break;
+      visible.push(blocks[i]);
+      used += h;
+    }
+
+    return { visibleBlocks: visible, maxOffset: maxOff, totalHeight: total };
+  }, [blocks, blockOffset, contentInnerH, contentWidth]);
+
   useInput((input, key) => {
     if (input === "r" && error) {
       loadHome();
@@ -127,20 +163,19 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
       return;
     }
     if (key.upArrow || key.pageUp) {
-      const amount = key.pageUp ? Math.floor(availH * 0.8) : 1;
-      setContentScroll((s) => Math.max(0, s - amount));
+      const amount = key.pageUp ? Math.max(1, Math.floor(contentInnerH / 8)) : 1;
+      setBlockOffset((o) => Math.max(0, o - amount));
       return;
     }
     if (key.downArrow || key.pageDown) {
-      const amount = key.pageDown ? Math.floor(availH * 0.8) : 1;
-      setContentScroll((s) => s + amount);
+      const amount = key.pageDown ? Math.max(1, Math.floor(contentInnerH / 8)) : 1;
+      setBlockOffset((o) => Math.min(maxOffset, o + amount));
       return;
     }
     if (key.leftArrow && currentIdx > 0) prevPage();
     if (key.rightArrow && currentIdx < pages.length - 1) nextPage();
   });
 
-  const sidebarPages = pages;
   const sidebarMax = Math.max(1, availH - 4);
 
   const sidebarVisible = useMemo(() => {
@@ -151,7 +186,7 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
     }
     const items: SidebarItem[] = [];
     const groups: Array<{ category: string; pages: WikiPage[] }> = [];
-    for (const p of sidebarPages) {
+    for (const p of pages) {
       const existing = groups.find((g) => g.category === p.category);
       if (existing) existing.pages.push(p);
       else groups.push({ category: p.category, pages: [p] });
@@ -160,7 +195,7 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
     for (const g of groups) {
       items.push({ text: `  ${g.category}`, type: "category" });
       for (let pi = 0; pi < g.pages.length; pi++) {
-        const pageIdx = sidebarPages.indexOf(g.pages[pi]);
+        const pageIdx = pages.indexOf(g.pages[pi]);
         const p = g.pages[pi];
         const marker = pageIdx === currentIdx ? "→" : " ";
         items.push({ text: ` ${marker} ${p.name}`, type: "page", pageIdx });
@@ -179,15 +214,9 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
     const visible = items.slice(offset, offset + sidebarMax);
 
     return { items: visible, offset, total: items.length };
-  }, [sidebarPages, currentIdx, sidebarIdx, sidebarMax]);
+  }, [pages, currentIdx, sidebarIdx, sidebarMax]);
 
-  const contentLines = useMemo(() => {
-    if (!content) return [];
-    return content.split("\n");
-  }, [content]);
-
-  const contentMax = Math.max(0, contentLines.length - availH + 2);
-  const clampedScroll = Math.min(contentScroll, contentMax);
+  const canScroll = blocks.length > visibleBlocks.length;
 
   return (
     <Box flexDirection="column" width={termWidth} height={termHeight - 4} overflow="hidden" paddingX={margin}>
@@ -227,20 +256,25 @@ export function WikiScreen({ onBack }: WikiScreenProps) {
             {error && (
               <Box flexDirection="column">
                 <Text color={colors.red}>[!] {error}</Text>
-                <Text color={colors.textMuted}>  Press </Text>
-                <Text color={colors.purple}>r</Text>
-                <Text color={colors.textMuted}> to retry</Text>
+                <Box marginTop={1}>
+                  <Text color={colors.textMuted}>  Press </Text>
+                  <Text color={colors.purple} bold>r</Text>
+                  <Text color={colors.textMuted}> to retry</Text>
+                </Box>
               </Box>
             )}
-            {!loading && !error && content && (
+            {!loading && !error && blocks.length > 0 && (
               <Box flexDirection="column" overflow="hidden">
-                <WikiContent text={contentLines.slice(clampedScroll, clampedScroll + availH - 2).join("\n")} contentWidth={contentWidth - 2} />
-                {contentMax > 0 && (
+                <WikiContent blocks={visibleBlocks} contentWidth={contentWidth - 2} />
+                {canScroll && (
                   <Box marginTop={0}>
-                    <ScrollIndicator offset={clampedScroll} total={contentLines.length} visible={availH - 2} />
+                    <ScrollIndicator offset={Math.min(blockOffset, maxOffset)} total={blocks.length} visible={visibleBlocks.length} />
                   </Box>
                 )}
               </Box>
+            )}
+            {!loading && !error && blocks.length === 0 && (
+              <Text color={colors.textMuted}>  No content</Text>
             )}
           </StyledBox>
         </Box>

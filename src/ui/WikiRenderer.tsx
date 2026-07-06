@@ -1,9 +1,9 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { Box, Text } from "ink";
 import { StyledBox } from "./components/Box.js";
 import { colors } from "./theme.js";
 
-interface WikiBlock {
+export interface WikiBlock {
   type: "heading" | "paragraph" | "code" | "table" | "list" | "hr";
   level?: number;
   text?: string;
@@ -11,6 +11,7 @@ interface WikiBlock {
   lang?: string;
   rows?: string[][];
   items?: string[];
+  ordered?: boolean;
 }
 
 interface InlineSegment {
@@ -21,11 +22,11 @@ interface InlineSegment {
 }
 
 interface WikiContentProps {
-  text: string;
+  blocks?: WikiBlock[];
   contentWidth: number;
 }
 
-function parseMarkdown(text: string): WikiBlock[] {
+export function parseMarkdown(text: string): WikiBlock[] {
   const lines = text.split("\n");
   const blocks: WikiBlock[] = [];
   let i = 0;
@@ -65,18 +66,25 @@ function parseMarkdown(text: string): WikiBlock[] {
       continue;
     }
 
-    if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+    const listMatch = trimmed.match(/^([-*]\s+)|^(\d+\.\s+)/);
+    if (listMatch) {
+      const ordered = /\d+\.\s+/.test(trimmed);
       const items: string[] = [];
       while (i < lines.length) {
         const t = lines[i].trim();
-        if (t.startsWith("- ") || t.startsWith("* ")) {
-          items.push(t.slice(2));
+        const unorderedMatch = t.match(/^([-*]\s+)(.+)/);
+        const orderedMatch = t.match(/^(\d+\.\s+)(.+)/);
+        if (unorderedMatch) {
+          items.push(unorderedMatch[2]);
+          i++;
+        } else if (orderedMatch) {
+          items.push(orderedMatch[2]);
           i++;
         } else {
           break;
         }
       }
-      blocks.push({ type: "list", items });
+      blocks.push({ type: "list", items, ordered });
       continue;
     }
 
@@ -101,7 +109,7 @@ function parseMarkdown(text: string): WikiBlock[] {
     const paragraphLines: string[] = [];
     while (i < lines.length) {
       const t = lines[i].trim();
-      if (!t || t.startsWith("```") || t.startsWith("---") || t.startsWith("#") || t.startsWith("|") || t.startsWith("- ") || t.startsWith("* ")) break;
+      if (!t || t.startsWith("```") || t.startsWith("---") || t.startsWith("#") || t.startsWith("|") || t.startsWith("- ") || t.startsWith("* ") || /^\d+\.\s/.test(t)) break;
       paragraphLines.push(t);
       i++;
     }
@@ -217,8 +225,44 @@ function renderTable(rows: string[][], maxWidth: number): string[] {
   return result;
 }
 
-export function WikiContent({ text, contentWidth }: WikiContentProps) {
-  const blocks = useMemo(() => parseMarkdown(text), [text]);
+export function blockHeight(block: WikiBlock, width: number): number {
+  const innerW = Math.max(20, width - 6);
+  switch (block.type) {
+    case "heading":
+      return 2;
+    case "paragraph": {
+      const textLen = stripHtml(block.text || "").length;
+      return Math.max(1, Math.ceil(textLen / innerW)) + 1;
+    }
+    case "code": {
+      const lines = block.code?.split("\n").length || 1;
+      return lines + 6;
+    }
+    case "table": {
+      const rows = block.rows?.length || 0;
+      return rows + 2;
+    }
+    case "list": {
+      const items = block.items?.length || 0;
+      let h = 0;
+      for (const item of block.items || []) {
+        const len = stripHtml(item).length;
+        h += Math.max(1, Math.ceil(len / (innerW - 3)));
+      }
+      return h + 1;
+    }
+    case "hr":
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+export function totalContentHeight(blocks: WikiBlock[], width: number): number {
+  return blocks.reduce((sum, b) => sum + blockHeight(b, width), 0);
+}
+
+export function WikiContent({ blocks = [], contentWidth }: WikiContentProps) {
   const innerWidth = Math.max(30, contentWidth - 4);
 
   return (
@@ -272,9 +316,10 @@ export function WikiContent({ text, contentWidth }: WikiContentProps) {
               <Box key={i} flexDirection="column" marginBottom={1}>
                 {block.items?.map((item, j) => {
                   const segs = parseInline(stripHtml(item));
+                  const prefix = block.ordered ? `  ${j + 1}. ` : "  • ";
                   return (
                     <Box key={j}>
-                      <Text color={colors.purpleDim}>  • </Text>
+                      <Text color={colors.purpleDim}>{prefix}</Text>
                       <Text><InlineText segments={segs} /></Text>
                     </Box>
                   );
