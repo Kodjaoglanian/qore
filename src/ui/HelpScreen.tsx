@@ -87,8 +87,9 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
       const amount = key.pageDown ? Math.max(step, Math.floor(availHeight / 8) * step) : step;
       setSectionOffset((o) => Math.min(maxOffset, o + amount));
     }
-    if (key.home) setSectionOffset(0);
-    if (key.end) setSectionOffset(maxOffset);
+    const k = key as { home?: boolean; end?: boolean };
+    if (k.home) setSectionOffset(0);
+    if (k.end) setSectionOffset(maxOffset);
   });
 
   const visibleCount = twoColumn ? Math.ceil(visibleSections.length / 2) : visibleSections.length;
@@ -142,7 +143,7 @@ function renderTwoColumn(sections: HelpSection[]) {
     <Box flexDirection="column">
       {pairs.map(([left, right]) => (
         <Box key={left.title} flexDirection="row" marginBottom={1}>
-          <Box flex={1} marginRight={right ? 1 : 0}>
+          <Box flexGrow={1} marginRight={right ? 1 : 0}>
             <StyledBox title={left.title} focused padding={1} borderColor={left.color}>
               <Box flexDirection="column">
                 {left.rows.map((r) => (
@@ -152,7 +153,7 @@ function renderTwoColumn(sections: HelpSection[]) {
             </StyledBox>
           </Box>
           {right && (
-            <Box flex={1} marginLeft={1}>
+            <Box flexGrow={1} marginLeft={1}>
               <StyledBox title={right.title} focused padding={1} borderColor={right.color}>
                 <Box flexDirection="column">
                   {right.rows.map((r) => (
