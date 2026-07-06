@@ -60,7 +60,7 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 
 ### Connection Management
 
-- **Protocol-Native Drivers**: Redis (RESP), PostgreSQL (wire protocol), MySQL (mysql2), MongoDB (wire protocol), S3-compatible REST, HTTP API, SSH (ssh2), and Git (CLI wrapper).
+- **Protocol-Native Drivers**: Redis (RESP), PostgreSQL (wire protocol), MySQL (mysql2), MongoDB (wire protocol), S3-compatible REST, HTTP API, SSH (ssh2), Git (CLI wrapper), and VMware vSphere (REST API).
 - **Multi-Connection Tabs**: Open multiple service connections simultaneously and switch between them with Ctrl+Tab or Ctrl+Arrow keys. All tabs stay mounted with state preserved.
 - **Multi-Session**: Open multiple sessions of the same connection (for example, two SSH sessions to the same server). Use the `new` command inside any service screen.
 - **SSH Toolkit**: File operations, service control, Docker management, SFTP transfer, process and network utilities, security audits, server snapshots, deploy scripts, and Docker Compose management.
@@ -249,7 +249,7 @@ The discovery screen uses a sidebar layout with 9 sections. Press `1` through `9
 
 | Command | Description |
 |---------|-------------|
-| `add` | Add a new connection (redis, postgres, mysql, mongo, s3, http, ssh, git) |
+| `add` | Add a new connection (redis, postgres, mysql, mongo, s3, http, ssh, git, vmware) |
 | `connect <n>` | Connect to saved connection number n |
 | `test <n>` | Test connection number n |
 | `rm <n>` | Remove connection number n |
@@ -574,6 +574,8 @@ src/
       mongo.ts           # MongoDB wire driver
       http.ts            # HTTP API manager (generic REST)
       ssh.ts             # SSH remote manager (ssh2)
+      git.ts             # Git repository manager (CLI wrapper)
+      vmware.ts          # VMware vSphere REST API driver
     snippets.ts          # Command snippet persistence
     health.ts            # Health check history and sparklines
   mcp/
@@ -736,13 +738,13 @@ The CI pipeline handles the rest: building, changelog generation, and GitHub Rel
 - Docker Unix socket integration
 - Terminal-native welcome screen
 - Secure credential vault (AES-256-GCM + scrypt)
-- Connection managers for Redis, S3-compatible storage, PostgreSQL, MySQL, MongoDB, HTTP API, SSH, and Git repositories
+- Connection managers for Redis, S3-compatible storage, PostgreSQL, MySQL, MongoDB, HTTP API, SSH, Git repositories, and VMware vSphere
 - Connections and service screens
 - Vault password change flow in the UI
 - Encrypted connection import and export (QOREX1 bundle format)
 - Multi-platform builds (Linux x64/arm64, macOS arm64, Windows x64)
 - Self-updating via `qore update`
-- Service log aggregation (SSH, Redis, Postgres, MySQL, Mongo, HTTP)
+- Service log aggregation (SSH, Redis, Postgres, MySQL, Mongo, HTTP, VMware)
 - SSH toolkit: file operations, service control, Docker management, SFTP transfer, process and network utilities
 - SSH management: ports, firewall, top, netstat, tail, edit, docker logs -f
 - UX improvements: command history, Tab autocomplete, favorites, multi-connection tabs
@@ -765,6 +767,7 @@ The CI pipeline handles the rest: building, changelog generation, and GitHub Rel
 - Command snippets: save and replay command sequences across connections
 - Multi-service dashboard: consolidated status overview with auto-refresh
 - Health check dashboard: periodic monitoring with sparklines, uptime %, configurable intervals
+- VMware vSphere connection manager: VM power control, snapshots, hosts, datastores, networks, events, alarms, task monitoring
 
 ### Planned
 

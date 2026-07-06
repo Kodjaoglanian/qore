@@ -49,7 +49,7 @@ Manages encrypted credentials for all external connections.
 
 - `crypto.ts`: scrypt key derivation (N=2^17, r=8, p=1) + AES-256-GCM authenticated encryption using `node:crypto`.
 - `vault.ts`: Manages `~/.qore/vault.enc` — init (refuses overwrite), forceInit (with backup), unlock, add/update/remove connections, change password, automatic backup rotation (max 5 in `~/.qore/backups/`), restore. Key is zeroed on lock.
-- `types.ts`: `ConnectionConfig` interface — generic, supports redis, postgres, mysql, mongo, s3, http, ssh, git.
+- `types.ts`: `ConnectionConfig` interface — generic, supports redis, postgres, mysql, mongo, s3, http, ssh, git, vmware.
 
 ### 2c. Connection Managers (`src/core/connections/`)
 
@@ -64,12 +64,13 @@ Protocol-level integrations with real services. No mocks, no vendor lock-in.
 - `http.ts`: Generic HTTP/REST client via `fetch`. GET, POST, PUT, PATCH, DELETE.
 - `ssh.ts`: SSH remote manager via `ssh2`. Exec commands, SFTP upload/download, journalctl/syslog logs, Docker container management, systemd service control, PTY for interactive commands (edit, deploy, tail -f, interactive shell), security audit, server snapshots, Docker Compose management, git-status, firewall (UFW), ports scanning. SSH Interactive Shell via `shell` command opens a full bash terminal with Ctrl+D exit.
 - `git.ts`: Git repository manager via local `git` CLI (`Bun.spawn`). Status, diff, branches, log graph, stage/unstage, commit, checkout, createBranch, deleteBranch, merge, rebase, fetch, pull, push, cherry-pick, revert, amend, blame, tags, remotes, addRemote, exec.
+- `vmware.ts`: VMware vSphere REST API via `fetch`. vCenter session-based auth, VM lifecycle (power on/off/reset/suspend), snapshot management (create/revert/delete), host/datastore/network monitoring, async task tracking, events and alarms retrieval. Supports insecure TLS for self-signed certs.
 
 ### 3. TUI & Render Pipeline (`src/ui/`)
 
 - The UI must match the `torlink` visual identity: clean box-drawing characters (`┌ ┐ └ ┘ ─ │`), minimalist text-based tabs, and no bloated layouts.
 - Colors are strictly defined: Dark Backgrounds, Electric Purple highlights (`#A370F7`) for active focus/borders, and Muted Blue-Grays (`#5C5B66`) for background context/shortcuts.
-- **Screens**: Welcome -> Discover (Docker/ports/daemons) -> Vault (unlock/create) -> Connections (list/add/test/groups/snippets) -> Dashboard (multi-service status) -> Health (health checks with sparklines) -> Service (type-specific management: Redis/S3/Postgres/MySQL/Mongo/HTTP/SSH/Git).
+- **Screens**: Welcome -> Discover (Docker/ports/daemons) -> Vault (unlock/create) -> Connections (list/add/test/groups/snippets) -> Dashboard (multi-service status) -> Health (health checks with sparklines) -> Service (type-specific management: Redis/S3/Postgres/MySQL/Mongo/HTTP/SSH/Git/VMware).
 - **Input Model**: InputBar is always focused. Commands are typed + Enter. Arrow keys navigate command list when input is empty, or navigate command history when input has text. Tab cycles autocomplete. No single-key shortcuts that conflict with typing.
 - **Multi-Connection**: Multiple service connections can be open simultaneously as tabs. Switch with Ctrl+Tab / Ctrl+Arrows. All ServiceScreen instances are rendered simultaneously — inactive tabs use `display="none"` and `focused={false}` to preserve state (connection, history, items) without remounting. Only the active tab captures keyboard input via `useInput({ isActive: focused })`.
 - **Multi-Session**: Multiple sessions of the same connection are allowed. Each tab is identified by a unique `sessionId` (not `conn.id`), so connecting to the same server twice opens two independent tabs. Use `new` command inside ServiceScreen to open a duplicate session. The ConnectionsScreen shows `[open xN]` when N sessions of the same connection are active. `handleConnect` in App.tsx always creates a new `ActiveSession` — it never deduplicates.
@@ -178,3 +179,4 @@ bun run release:minor
 - [ ] Multi-architecture CI matrix for ARM native builds.
 - [ ] Expand test coverage (connection managers, SSH commands, UI components).
 - [ ] Add linting (eslint/biome) to CI pipeline.
+- [x] VMware vSphere connection manager (VM power control, snapshots, hosts, datastores, events, task monitoring).

@@ -504,7 +504,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
       setView("add");
       setFormStep(0);
       setFormData({ type: undefined, host: "localhost", port: undefined, useTls: false });
-      setStatus("Type: redis · postgres · mysql · mongo · s3 · http · ssh");
+      setStatus("Type: redis · postgres · mysql · mongo · s3 · http · ssh · git · vmware");
       return;
     }
 
@@ -971,7 +971,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
               </Box>
 
               {formStep === 0 && (
-                <Text color={colors.textMuted}>{"  Options: redis · postgres · mysql · mongo · s3 · http · ssh"}</Text>
+                <Text color={colors.textMuted}>{"  Options: redis · postgres · mysql · mongo · s3 · http · ssh · git · vmware"}</Text>
               )}
 
               {status && (
