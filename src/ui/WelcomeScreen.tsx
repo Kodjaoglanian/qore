@@ -21,6 +21,7 @@ export function WelcomeScreen({ onCommand, vaultUnlocked }: WelcomeScreenProps) 
     { cmd: "discover", desc: "scan ports, Docker & daemons", color: colors.cyan },
     { cmd: "connections", desc: "vault & manage Redis, Postgres, MongoDB, S3, Git", color: colors.purple },
     { cmd: "dashboard", desc: "multi-service status, health & sparklines", color: colors.green },
+    { cmd: "wiki", desc: "Qore documentation (wiki book)", color: colors.blue },
     { cmd: "help", desc: "show all commands & shortcuts", color: colors.blue },
     { cmd: "quit", desc: "exit Qore", color: colors.red },
   ];
@@ -62,7 +63,7 @@ export function WelcomeScreen({ onCommand, vaultUnlocked }: WelcomeScreenProps) 
       </Box>
 
       <Box marginX={margin} marginBottom={1}>
-        <InputBar onSubmit={onCommand} placeholder="discover · connections · dashboard · help · quit" />
+        <InputBar onSubmit={onCommand} placeholder="discover · connections · dashboard · wiki · help · quit" />
       </Box>
 
       <Box marginX={margin}>

@@ -1,0 +1,247 @@
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { Box, Text, useInput } from "ink";
+import { StyledBox } from "./components/Box.js";
+import { Breadcrumb } from "./components/Breadcrumb.js";
+import { ScrollIndicator } from "./components/ScrollIndicator.js";
+import { colors } from "./theme.js";
+import { useTerminalSize } from "./hooks/useTerminalSize.js";
+import { WikiContent, parsePageIndex, extractPageTitle } from "./WikiRenderer.js";
+
+const WIKI_BASE = "https://raw.githubusercontent.com/wiki/Kodjaoglanian/qore/";
+
+interface WikiPage {
+  name: string;
+  slug: string;
+  category: string;
+}
+
+interface WikiScreenProps {
+  onBack: () => void;
+}
+
+async function fetchPage(slug: string): Promise<string> {
+  const resp = await fetch(`${WIKI_BASE}${encodeURIComponent(slug)}.md`, {
+    headers: { "User-Agent": "qore-wiki" },
+  });
+  if (!resp.ok) throw new Error(`Page not found (${resp.status})`);
+  return resp.text();
+}
+
+export function WikiScreen({ onBack }: WikiScreenProps) {
+  const { width: termWidth, height: termHeight } = useTerminalSize();
+  const margin = Math.max(1, Math.floor(termWidth * 0.03));
+
+  const [pages, setPages] = useState<WikiPage[]>([]);
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [sidebarIdx, setSidebarIdx] = useState(0);
+  const [content, setContent] = useState("");
+  const [pageTitle, setPageTitle] = useState("Wiki");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [contentScroll, setContentScroll] = useState(0);
+  const [sidebarFocus, setSidebarFocus] = useState(false);
+
+  const sidebarWidth = Math.min(30, Math.max(18, Math.floor(termWidth * 0.28)));
+  const contentWidth = termWidth - sidebarWidth - margin * 2 - 4;
+  const availH = Math.max(8, termHeight - 4 - 5);
+
+  const loadHome = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const homeMd = await fetchPage("Home");
+      const pageList = parsePageIndex(homeMd);
+      setPages(pageList);
+      if (pageList.length > 0) {
+        loadPage(pageList[0].slug);
+      } else {
+        setContent("# Wiki\n\nNo pages found.");
+        setPageTitle("Wiki");
+        setLoading(false);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+      setLoading(false);
+    }
+  }, []);
+
+  const loadPage = useCallback(async (slug: string) => {
+    setLoading(true);
+    setError(null);
+    setContentScroll(0);
+    try {
+      const md = await fetchPage(slug);
+      setContent(md);
+      setPageTitle(extractPageTitle(md));
+      const idx = pages.findIndex((p) => p.slug === slug);
+      if (idx >= 0) {
+        setCurrentIdx(idx);
+        setSidebarIdx(idx);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [pages]);
+
+  useEffect(() => {
+    loadHome();
+  }, [loadHome]);
+
+  const currentPage = pages[currentIdx];
+  const totalPages = pages.length;
+
+  const prevPage = useCallback(() => {
+    if (currentIdx > 0) loadPage(pages[currentIdx - 1].slug);
+  }, [currentIdx, pages, loadPage]);
+
+  const nextPage = useCallback(() => {
+    if (currentIdx < pages.length - 1) loadPage(pages[currentIdx + 1].slug);
+  }, [currentIdx, pages, loadPage]);
+
+  useInput((input, key) => {
+    if (key.escape || input === "q") {
+      if (sidebarFocus) {
+        setSidebarFocus(false);
+      } else {
+        onBack();
+      }
+      return;
+    }
+    if (key.tab) {
+      setSidebarFocus((s) => !s);
+      return;
+    }
+    if (sidebarFocus) {
+      if (key.upArrow) setSidebarIdx((i) => Math.max(0, i - 1));
+      if (key.downArrow) setSidebarIdx((i) => Math.min(pages.length - 1, i + 1));
+      if (key.return && pages[sidebarIdx]) loadPage(pages[sidebarIdx].slug);
+      return;
+    }
+    if (key.upArrow || key.pageUp) {
+      const amount = key.pageUp ? Math.floor(availH * 0.8) : 1;
+      setContentScroll((s) => Math.max(0, s - amount));
+      return;
+    }
+    if (key.downArrow || key.pageDown) {
+      const amount = key.pageDown ? Math.floor(availH * 0.8) : 1;
+      setContentScroll((s) => s + amount);
+      return;
+    }
+    if (key.leftArrow && currentIdx > 0) prevPage();
+    if (key.rightArrow && currentIdx < pages.length - 1) nextPage();
+  });
+
+  const sidebarPages = pages;
+  const sidebarMax = Math.max(1, availH - 4);
+
+  const sidebarVisible = useMemo(() => {
+    const groups: Array<{ category: string; pages: WikiPage[] }> = [];
+    for (const p of sidebarPages) {
+      const existing = groups.find((g) => g.category === p.category);
+      if (existing) existing.pages.push(p);
+      else groups.push({ category: p.category, pages: [p] });
+    }
+
+    const totalLines: string[] = [];
+    for (const g of groups) {
+      totalLines.push(`  ${g.category}`);
+      for (const p of g.pages) {
+        const marker = p.slug === currentPage?.slug ? "→" : " ";
+        totalLines.push(` ${marker} ${p.name}`);
+      }
+    }
+
+    const maxScroll = Math.max(0, totalLines.length - sidebarMax);
+    const offset = Math.min(Math.max(0, sidebarIdx - 2), maxScroll);
+    const visible = totalLines.slice(offset, offset + sidebarMax);
+
+    return { lines: visible, offset, maxScroll, totalLines: totalLines.length };
+  }, [sidebarPages, currentPage, sidebarIdx, sidebarMax]);
+
+  const contentLines = useMemo(() => {
+    if (!content) return [];
+    return content.split("\n");
+  }, [content]);
+
+  const contentMax = Math.max(0, contentLines.length - availH + 2);
+  const clampedScroll = Math.min(contentScroll, contentMax);
+
+  return (
+    <Box flexDirection="column" width={termWidth} height={termHeight - 4} overflow="hidden" paddingX={margin}>
+      <Box marginBottom={1} height={1}>
+        <Breadcrumb items={["Home", "Wiki", pageTitle]} />
+      </Box>
+
+      <Box flexDirection="row" height={availH} overflow="hidden">
+        <Box width={sidebarWidth} flexShrink={0} marginRight={1}>
+          <StyledBox title="Pages" focused={sidebarFocus} borderColor={sidebarFocus ? colors.purple : colors.borderMuted} padding={1} height={availH} overflow="hidden">
+            <Box flexDirection="column" overflow="hidden">
+              {sidebarVisible.lines.map((line, i) => {
+                const isCategory = !line.trim().startsWith("→") && !line.trim().startsWith(" ") && line.trim().length > 0;
+                const isCurrent = line.trim().startsWith("→");
+                const isSelected = line.trim().startsWith(" ") && sidebarFocus && i >= sidebarVisible.offset && i <= sidebarVisible.offset + sidebarMax;
+                return (
+                  <Text key={i} color={isCategory ? colors.textDim : isCurrent ? colors.purpleBright : isSelected ? colors.purple : colors.textMuted} bold={isCurrent || isCategory}>
+                    {line}
+                  </Text>
+                );
+              })}
+              {sidebarVisible.totalLines > sidebarMax && (
+                <ScrollIndicator offset={sidebarVisible.offset} total={sidebarVisible.totalLines} visible={sidebarMax} />
+              )}
+            </Box>
+          </StyledBox>
+        </Box>
+
+        <Box flexGrow={1}>
+          <StyledBox title={loading ? "Loading..." : error ? "Error" : pageTitle} focused={!sidebarFocus} padding={1} height={availH} overflow="hidden">
+            {loading && (
+              <Text color={colors.textMuted}>Fetching page...</Text>
+            )}
+            {error && (
+              <Box flexDirection="column">
+                <Text color={colors.red}>[!] {error}</Text>
+                <Text color={colors.textMuted}>  Press </Text>
+                <Text color={colors.purple}>r</Text>
+                <Text color={colors.textMuted}> to retry</Text>
+              </Box>
+            )}
+            {!loading && !error && content && (
+              <Box flexDirection="column" overflow="hidden">
+                <WikiContent text={contentLines.slice(clampedScroll, clampedScroll + availH - 2).join("\n")} contentWidth={contentWidth - 2} />
+                {contentMax > 0 && (
+                  <Box marginTop={0}>
+                    <ScrollIndicator offset={clampedScroll} total={contentLines.length} visible={availH - 2} />
+                  </Box>
+                )}
+              </Box>
+            )}
+          </StyledBox>
+        </Box>
+      </Box>
+
+      <Box marginTop={1} justifyContent="space-between">
+        <Box>
+          <Text color={colors.textMuted}>Press </Text>
+          <Text color={colors.purple} bold>esc</Text>
+          <Text color={colors.textMuted}> to go back</Text>
+        </Box>
+        <Box>
+          <Text color={colors.textMuted}>
+            {sidebarFocus ? "↑↓ select · Enter open" : "↑↓ scroll · ← prev · → next"}
+            {"  "}
+          </Text>
+          <Text color={colors.purple} bold>Tab</Text>
+          <Text color={colors.textMuted}> focus {sidebarFocus ? "content" : "sidebar"}</Text>
+          {totalPages > 0 && (
+            <Text color={colors.textMuted}>
+              {"  ·  "}{currentIdx + 1}/{totalPages}
+            </Text>
+          )}
+        </Box>
+      </Box>
+    </Box>
+  );
+}

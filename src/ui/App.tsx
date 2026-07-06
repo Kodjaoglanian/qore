@@ -6,6 +6,7 @@ import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
 import { DiscoverScreen } from "./DiscoverScreen.js";
 import { HelpScreen } from "./HelpScreen.js";
+import { WikiScreen } from "./WikiScreen.js";
 import { ConnectionsScreen } from "./ConnectionsScreen.js";
 import { DashboardScreen } from "./DashboardScreen.js";
 import { ServiceScreen } from "./ServiceScreen.js";
@@ -22,7 +23,7 @@ interface ActiveSession {
   conn: ConnectionConfig;
 }
 
-type Screen = "welcome" | "discover" | "help" | "connections" | "service" | "dashboard";
+type Screen = "welcome" | "discover" | "help" | "wiki" | "connections" | "service" | "dashboard";
 
 export function App() {
   const { exit } = useApp();
@@ -94,6 +95,11 @@ export function App() {
           break;
         case "help":
           setScreen("help");
+          break;
+        case "wiki":
+        case "docs":
+        case "book":
+          setScreen("wiki");
           break;
         case "quit":
         case "exit":
@@ -189,6 +195,7 @@ export function App() {
           <DiscoverScreen probe={probe} scanning={scanning} onCommand={handleCommand} onRefresh={runDiscovery} />
         )}
         {screen === "help" && <HelpScreen onCommand={handleCommand} />}
+        {screen === "wiki" && <WikiScreen onBack={() => setScreen("welcome")} />}
         {screen === "connections" && (
           <ConnectionsScreen
             key={vault ? "unlocked" : "locked"}
