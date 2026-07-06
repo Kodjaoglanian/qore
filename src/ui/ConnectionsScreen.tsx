@@ -165,7 +165,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
     const isEdit = view === "edit";
 
     if (formStep === 0) {
-      const validTypes: ConnectionType[] = ["redis", "postgres", "mysql", "mongo", "s3", "http", "ssh", "git"];
+      const validTypes: ConnectionType[] = ["redis", "postgres", "mysql", "mongo", "s3", "http", "ssh", "git", "vmware"];
       if (validTypes.includes(lower as ConnectionType)) {
         const type = lower as ConnectionType;
         setFormData((d) => ({ ...d, type, port: DEFAULT_PORTS[type] }));
@@ -230,6 +230,11 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
         setStatus("SSH key file path (e.g. ~/.ssh/id_rsa) or Enter for password auth:");
         return;
       }
+      if (formData.type === "vmware") {
+        setFormStep(5.7);
+        setStatus("Allow insecure TLS? (recommended for self-signed certs) (yes/no, default: yes):");
+        return;
+      }
       setFormStep(7);
       setStatus("Use TLS? (yes/no):");
       return;
@@ -251,6 +256,28 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
       setFormData((d) => ({ ...d, apiSecret: value || undefined }));
       setFormStep(7);
       setStatus("Use TLS? (yes/no):");
+      return;
+    }
+
+    if (formStep === 5.7) {
+      const insecure = lower === "yes" || lower === "y" || lower === "true" || value === "";
+      setFormData((d) => ({ ...d, extra: { ...d.extra, insecure: insecure ? "true" : "false" }, useTls: true }));
+      const finalData = { ...formData, extra: { ...(formData.extra ?? {}), insecure: insecure ? "true" : "false" }, useTls: true };
+      try {
+        if (isEdit && editingId) {
+          vault.updateConnection(editingId, finalData as Partial<ConnectionConfig>);
+          setStatus(`[ok] Updated: ${finalData.name}`);
+        } else {
+          vault.addConnection(finalData as Omit<ConnectionConfig, "id">);
+          setStatus(`[ok] Added: ${finalData.name}`);
+        }
+        refreshList();
+        setView("list");
+        setFormStep(0);
+        setEditingId(null);
+      } catch (err) {
+        setStatus(`Error: ${(err as Error).message}`);
+      }
       return;
     }
 
@@ -1211,7 +1238,7 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
 
 function getFormPlaceholder(step: number): string {
   switch (step) {
-    case 0: return "redis · postgres · mysql · mongo · s3 · http · ssh · git";
+    case 0: return "redis · postgres · mysql · mongo · s3 · http · ssh · git · vmware";
     case 1: return "Connection name (e.g. My Redis)";
     case 2: return "Host (default: localhost)";
     case 3: return "Port (default shown above)";
