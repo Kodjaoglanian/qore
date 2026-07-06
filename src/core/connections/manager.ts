@@ -7,6 +7,7 @@ import { MongoManager } from "./mongo.js";
 import { HttpManager } from "./http.js";
 import { SshManager } from "./ssh.js";
 import { GitManager } from "./git.js";
+import { VmwareManager } from "./vmware.js";
 
 export interface QuickStatus {
   online: boolean;
@@ -72,6 +73,7 @@ export function getManager(type: ConnectionType): ConnectionManager | null {
     case "http": return new HttpManager();
     case "ssh": return new SshManager();
     case "git": return new GitManager();
+    case "vmware": return new VmwareManager();
     default: return null;
   }
 }
