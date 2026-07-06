@@ -33,7 +33,7 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
 
   const sections = useMemo(() => createSections(), []);
 
-  const overhead = 5;
+  const overhead = 4;
   const availHeight = Math.max(8, termHeight - 4 - overhead);
 
   const maxOffset = useMemo(() => {
