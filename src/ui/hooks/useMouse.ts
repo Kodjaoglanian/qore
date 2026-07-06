@@ -6,7 +6,13 @@ function injectKey(data: string) {
   try {
     process.stdin.emit("data", Buffer.from(data));
   } catch {
-    // stdin emit not supported — mouse events silently ignored
+    // stdin emit not supported — silently ignored
+  }
+}
+
+function writeEsc(seq: string) {
+  if (process.stdout.isTTY) {
+    try { process.stdout.write(seq); } catch {}
   }
 }
 
@@ -14,11 +20,18 @@ export function useMouse() {
   const bufRef = useRef("");
 
   useEffect(() => {
-    if (active) return;
+    if (active || !process.stdin.isTTY) return;
     active = true;
 
-    // Enable SGR mouse mode: basic + button-event + extended coordinates
-    process.stdout.write("\x1b[?1000h\x1b[?1002h\x1b[?1006h");
+    const cleanup = () => {
+      writeEsc("\x1b[?1000l\x1b[?1002l\x1b[?1006l");
+    };
+
+    // Enable SGR mouse mode: basic tracking + button-event + extended coords
+    writeEsc("\x1b[?1000h\x1b[?1002h\x1b[?1006h");
+
+    // Disable on process exit (in case React cleanup doesn't run)
+    process.on("exit", cleanup);
 
     const onData = (data: Buffer) => {
       const chunk = data.toString("utf-8");
@@ -51,7 +64,8 @@ export function useMouse() {
     process.stdin.on("data", onData);
 
     return () => {
-      process.stdout.write("\x1b[?1000l\x1b[?1002l\x1b[?1006l");
+      cleanup();
+      process.removeListener("exit", cleanup);
       process.stdin.removeListener("data", onData);
       active = false;
     };
