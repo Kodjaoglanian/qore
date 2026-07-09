@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { Box, Text } from "ink";
 import { Logo } from "./components/Logo.js";
 import { InputBar } from "./components/InputBar.js";
@@ -6,7 +6,6 @@ import { ShortcutBar } from "./components/ShortcutBar.js";
 import { Breadcrumb } from "./components/Breadcrumb.js";
 import { colors } from "./theme.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
-import { setMouseHandler } from "./mouseBus.js";
 
 interface WelcomeScreenProps {
   onCommand: (cmd: string) => void;
@@ -26,22 +25,6 @@ export function WelcomeScreen({ onCommand, vaultUnlocked }: WelcomeScreenProps) 
     { cmd: "help", desc: "show all commands & shortcuts", color: colors.blue },
     { cmd: "quit", desc: "exit Qore", color: colors.red },
   ];
-
-  useEffect(() => {
-    setMouseHandler((event) => {
-      if (event.type !== "click") return;
-      const logoH = 16;
-      const headerRows = 2 + logoH + 3;
-      const totalContent = 32;
-      const centerOff = Math.max(0, Math.floor((termHeight - 4 - totalContent) / 2));
-      const listStartY = headerRows + centerOff;
-      const idx = event.y - listStartY;
-      if (idx >= 0 && idx < commands.length) {
-        onCommand(commands[idx].cmd);
-      }
-    });
-    return () => setMouseHandler(null);
-  }, [termHeight, onCommand]);
 
   return (
     <Box flexDirection="column" width={termWidth} height={termHeight - 4} overflow="hidden" justifyContent="center">

@@ -7,7 +7,6 @@ import { InputBar } from "./components/InputBar.js";
 import { ShortcutBar } from "./components/ShortcutBar.js";
 import { Breadcrumb } from "./components/Breadcrumb.js";
 import { ProgressBar } from "./components/ProgressBar.js";
-import { setMouseHandler } from "./mouseBus.js";
 import { Vault } from "../core/vault/vault.js";
 import type { ConnectionConfig, ConnectionGroup, ConnectionType } from "../core/vault/types.js";
 import { CONNECTION_LABELS, CONNECTION_ICONS, DEFAULT_PORTS } from "../core/vault/types.js";
@@ -88,22 +87,6 @@ export function ConnectionsScreen({ vault, onVaultUnlock, onConnect, onBack, act
   const refreshList = useCallback(() => {
     if (vault && vault.isUnlocked()) setConnections(vault.getConnections());
   }, [vault]);
-
-  useEffect(() => {
-    setMouseHandler((event) => {
-      if (event.type === "rightClick") {
-        if (view === "list") onBack();
-        return;
-      }
-      if (event.type !== "click" || view !== "list") return;
-      const listStartY = 8;
-      const idx = event.y - listStartY;
-      if (idx >= 0 && idx < connections.length) {
-        setSelectedIdx(idx);
-      }
-    });
-    return () => setMouseHandler(null);
-  }, [view, connections.length, onBack]);
 
   const handleVaultSubmit = useCallback((value: string) => {
     setVaultError(null);
