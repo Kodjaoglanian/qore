@@ -70,7 +70,7 @@ Protocol-level integrations with real services. No mocks, no vendor lock-in.
 
 - The UI must match the `torlink` visual identity: clean box-drawing characters (`┌ ┐ └ ┘ ─ │`), minimalist text-based tabs, and no bloated layouts.
 - Colors are strictly defined: Dark Backgrounds, Electric Purple highlights (`#A370F7`) for active focus/borders, and Muted Blue-Grays (`#5C5B66`) for background context/shortcuts.
-- **Screens**: Welcome -> Discover (Docker/ports/daemons) -> Vault (unlock/create) -> Connections (list/add/test/groups/snippets) -> Dashboard (multi-service status) -> Health (health checks with sparklines) -> Service (type-specific management: Redis/S3/Postgres/MySQL/Mongo/HTTP/SSH/Git/VMware).
+- **Screens**: Welcome -> Discover (Docker/ports/daemons) -> Vault (unlock/create) -> Connections (list/add/test/groups/snippets) -> Dashboard (multi-service status) -> Health (health checks with sparklines) -> Storage (Local/AWS S3) -> Providers (Storage & Pub/Sub switcher) -> Service (split-pane console: Redis/S3/Postgres/MySQL/Mongo/HTTP/SSH/Git/VMware) -> Wiki/Help + global `Ctrl+K` Command Palette.
 - **Input Model**: InputBar is always focused. Commands are typed + Enter. Arrow keys navigate command list when input is empty, or navigate command history when input has text. Tab cycles autocomplete. No single-key shortcuts that conflict with typing.
 - **Multi-Connection**: Multiple service connections can be open simultaneously as tabs. Switch with Ctrl+Tab / Ctrl+Arrows. All ServiceScreen instances are rendered simultaneously — inactive tabs use `display="none"` and `focused={false}` to preserve state (connection, history, items) without remounting. Only the active tab captures keyboard input via `useInput({ isActive: focused })`.
 - **Multi-Session**: Multiple sessions of the same connection are allowed. Each tab is identified by a unique `sessionId` (not `conn.id`), so connecting to the same server twice opens two independent tabs. Use `new` command inside ServiceScreen to open a duplicate session. The ConnectionsScreen shows `[open xN]` when N sessions of the same connection are active. `handleConnect` in App.tsx always creates a new `ActiveSession` — it never deduplicates.
@@ -175,7 +175,9 @@ bun run release:minor
 
 ### Next Features
 
-- [ ] Local emulated S3 and Pub/Sub providers.
+- [x] Local emulated S3 and Pub/Sub providers (`StorageScreen` + `ProvidersScreen`).
+- [x] Multi-theme TrueColor system (`config.ts`), `Ctrl+K` Command Palette, split-pane SSH Command Center, and automatic update detection (`updater.ts`).
+- [x] Windows TUI stdin bridge (`stdin-bridge.ts`) and MCP SSH connection pooling (`SshManager({ pooled: true })`).
 - [ ] Multi-architecture CI matrix for ARM native builds.
 - [ ] Expand test coverage (connection managers, SSH commands, UI components).
 - [ ] Add linting (eslint/biome) to CI pipeline.

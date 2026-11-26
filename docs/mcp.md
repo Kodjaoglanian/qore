@@ -60,6 +60,12 @@ The MCP server runs as a subprocess of the AI client and communicates via JSON-R
 4. The MCP server executes the operation using the appropriate connection driver (SSH, database, HTTP, etc.).
 5. The result is returned to the AI model as a JSON-RPC response over stdout. Credentials are never included in the response.
 
+### SSH Connection Pooling
+
+MCP SSH tools (`ssh_exec`, `ssh_test`, `ssh_get_info`, `ssh_upload`, `ssh_download`) use `SshManager({ pooled: true })` to keep one authenticated SSH session per host alive for up to 5 minutes of idle time. The first call performs the SSH handshake; subsequent calls reuse the existing session immediately.
+
+`ssh_exec`, `ssh_test`, and `ssh_get_info` append a `[timing]` diagnostic line (for example, `[timing] vault=2ms ssh-connect=0ms (reused) exec=45ms`) so you can distinguish handshake overhead from network/command latency.
+
 ### Protocol Version
 
 The server implements MCP protocol version `2025-03-26` with stdio transport.

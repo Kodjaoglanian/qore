@@ -72,15 +72,18 @@ The interface is designed around a persistent command bar, keyboard navigation, 
 
 ### Developer Experience
 
-- **Keyboard-First TUI**: Type commands, use arrow keys for selection, press Escape to navigate back.
+- **Keyboard-First TUI**: Type commands, use arrow keys for selection, press Escape to navigate back, and open the fuzzy **Command Palette** (`Ctrl+K`) from any screen.
+- **5 TrueColor Themes**: Switch live between `torlink`, `cyber`, `emerald`, `amber`, and `rose` palettes (`theme [name]`), persisted in `~/.qore/config.json`.
+- **Inline Ghost Autocomplete**: Shows matching command suggestions inline as you type (`Tab` accepts/cycles, `Ctrl+W` deletes word, `Ctrl+U` clears line).
 - **Command History**: Navigate previous commands with Up/Down arrows when the input bar has text.
-- **Tab Autocomplete**: Press Tab to cycle through matching commands.
 - **Favorites**: Star frequently used commands with `star <cmd>` and recall them with `favorites`.
+- **SSH Command Center & Native PTY**: Split-pane SSH console with 6 quick-filter categories (`1`–`6`), live RAM/Disk meters, and full interactive PTY (`shell`/`edit`) with multi-color ANSI/TrueColor rendering.
+- **Local Emulated S3 & Pub/Sub**: Built-in `storage` browser backed by SQLite + `~/.qore/storage/` and `providers` screen to switch between Local and AWS providers and test Pub/Sub topics.
 - **Database Tools**: Export table data to CSV, run EXPLAIN query plans, and monitor slow queries across PostgreSQL, MySQL, and MongoDB.
 - **S3 Operations**: Upload, download, delete objects, and generate pre-signed URLs with AWS SigV4.
 - **Git Repository Management**: Full git operations including branch visualization, staging, committing, merging, rebasing, cherry-picking, blaming, tagging, and remote management with an ASCII branch tree dashboard.
-- **Self-Updating**: Run `qore update` to download the latest version with progress bar, changelog preview, and automatic backup.
-- **Multi-Platform**: Prebuilt binaries for Linux (x64/arm64), macOS (Apple Silicon), and Windows (x64).
+- **Auto-Update Detection & Self-Updating**: Checks GitHub every 6h (cached in `~/.qore/update-check.json`), shows a status bar badge when a new version is out, and updates via `update install` in-TUI or `qore update` CLI.
+- **Multi-Platform**: Prebuilt binaries for Linux (x64/arm64), macOS (Apple Silicon), and Windows (x64) with native Windows stdin bridge & port/host probes.
 - **CI/CD Pipeline**: Automated testing, building, and releasing via GitHub Actions with 4-platform binary compilation.
 
 ### MCP Server
@@ -158,6 +161,8 @@ Qore creates the following local directories on first run:
 
 ```text
 ~/.qore/
+  config.json         # Theme, auto-probe, and update-check preferences
+  update-check.json   # Cached latest-release check (6h TTL)
   vault.enc           # Encrypted credential vault
   vault.meta.json     # Vault metadata
   qore.sock           # Unix socket for MCP vault bridge (when unlocked)
@@ -192,10 +197,17 @@ Launch the application and type commands in the bottom input bar. Press Enter to
 | `connections` | Manage saved service connections |
 | `dashboard` | Multi-service status overview (requires unlocked vault) |
 | `health` | Health checks with history & sparklines (requires unlocked vault) |
+| `storage` | Browse and manage Local Emulated S3 or AWS S3 buckets and objects |
+| `providers` | Switch between Local and AWS storage/messaging providers & publish Pub/Sub events |
+| `theme [name]` | Cycle or set TrueColor theme (`torlink`, `cyber`, `emerald`, `amber`, `rose`) |
+| `update [install]` | Check GitHub for a newer release or install it from inside the TUI |
+| `lock` | Lock the vault and zero encryption keys in memory |
 | `vault` | Create or unlock the credential vault |
-| `help` | Show the full command reference |
+| `wiki` | Open the built-in Qore documentation book |
+| `help` | Show the searchable command reference |
+| `Ctrl+K` | Open the fuzzy Command Palette from any screen |
 | `back` / `esc` | Return to the previous screen |
-| `quit` / `exit` / `^c` | Exit Qore from any screen |
+| `quit` / `exit` / `^c` | Restore terminal and exit Qore from any screen |
 
 ### Discovery screen
 
@@ -546,6 +558,8 @@ See [docs/mcp.md](docs/mcp.md) for full documentation including all tools, resou
 src/
   index.tsx              # Entry point
   core/
+    config.ts            # Persistent user config (theme, auto-probe, update checks)
+    updater.ts           # Background GitHub release check & 6h cache
     types.ts             # Shared interfaces
     orchestrator.ts      # Central discovery engine
     probe/
@@ -597,22 +611,26 @@ src/
   cli/
     update.ts            # Self-update and CLI argument handling
   ui/
-    App.tsx              # Root TUI component
-    theme.ts             # Color palette
-    WelcomeScreen.tsx    # Initial screen
+    App.tsx              # Root TUI component (Command Palette, themes, tabs, update check)
+    theme.ts             # Multi-theme 24-bit TrueColor palettes
+    utils.ts             # Pure UI helpers (meters, fuzzy matching)
+    stdin-bridge.ts      # Windows ConPTY/Bun stdin readable bridge
+    service-helpers.ts   # SSH command catalog, metrics parser, overlay syntax colors
+    WelcomeScreen.tsx    # Live telemetry strip & interactive menu
     DiscoverScreen.tsx   # Discovery results (sidebar layout)
     ConnectionsScreen.tsx# Connection management (groups, snippets)
     DashboardScreen.tsx  # Multi-service status dashboard
     HealthScreen.tsx     # Health check dashboard with sparklines
-    ServiceScreen.tsx    # Service-specific console
-    VaultScreen.tsx      # Vault unlock/creation
-    HelpScreen.tsx       # Command reference
-    StorageScreen.tsx    # Storage browser
-    ProvidersScreen.tsx  # Provider switcher
-    components/          # Reusable UI primitives
+    ServiceScreen.tsx    # Split-pane service console & SSH Command Center
+    HelpScreen.tsx       # Searchable command reference
+    WikiScreen.tsx       # Built-in GitHub Wiki reader
+    StorageScreen.tsx    # Local/AWS S3 bucket & object browser
+    ProvidersScreen.tsx  # Hybrid provider switcher & Pub/Sub tester
+    components/          # Reusable UI primitives (CommandPalette, Spinner, MeterBar, TerminalOverlay...)
     hooks/               # Terminal size and input hooks
   tests/
-    core.test.ts         # Core crypto and theme tests
+    core.test.ts         # Core crypto, vault, and theme tests
+    features.test.ts     # Themes, config, LocalS3, Pub/Sub, health, Windows & SSH helper tests
 ```
 
 ### Design principles
@@ -682,7 +700,7 @@ bun test
 
 ## Testing
 
-Tests are written with `bun:test` and cover the core cryptography and vault lifecycle:
+Tests are written with `bun:test` across `tests/core.test.ts` and `tests/features.test.ts` (27 tests):
 
 ```bash
 bun test
@@ -690,11 +708,11 @@ bun test
 
 Current test areas:
 
-- Theme color definitions
-- scrypt key derivation determinism
-- AES-256-GCM encryption and decryption round-trip
-- Decryption failure with wrong key
-- Vault initialization, unlock, and wrong-password handling
+- Multi-theme TrueColor palettes, config persistence, and threshold colors
+- scrypt key derivation determinism, AES-256-GCM encryption/decryption, and vault lifecycle
+- Local emulated S3 (`LocalS3Provider`) and in-memory Pub/Sub (`LocalPubSub`)
+- Health check history, sparklines, and update detection (`compareVersions`, `checkForUpdate` cache/offline)
+- Windows stdin bridge, `netstat` parser, SSH metrics parser, and UI helpers
 
 ---
 
@@ -768,10 +786,13 @@ The CI pipeline handles the rest: building, changelog generation, and GitHub Rel
 - Multi-service dashboard: consolidated status overview with auto-refresh
 - Health check dashboard: periodic monitoring with sparklines, uptime %, configurable intervals
 - VMware vSphere connection manager: VM power control, snapshots, hosts, datastores, networks, events, alarms, task monitoring
+- 5 TrueColor themes, `Ctrl+K` Command Palette, inline ghost autocomplete, and split-pane SSH Command Center
+- Local emulated S3 and Pub/Sub providers (`storage` and `providers` screens)
+- Automatic update detection with 6h cache and in-TUI `update install`
+- MCP SSH connection pooling with per-call `[timing]` breakdown
 
 ### Planned
 
-- Local emulated S3 and Pub/Sub providers
 - Multi-architecture CI matrix for ARM native builds
 - Expanded test coverage (connection managers, SSH commands, UI components)
 - Linting (eslint/biome) in CI pipeline
