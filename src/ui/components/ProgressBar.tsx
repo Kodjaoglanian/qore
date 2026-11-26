@@ -1,24 +1,64 @@
 import React from "react";
 import { Box, Text } from "ink";
-import { colors } from "../theme.js";
+import { colors, percentColor } from "../theme.js";
+import { renderMeterString } from "../utils.js";
+
+export { renderMeterString };
 
 interface ProgressBarProps {
   current: number;
   total: number;
   width?: number;
+  label?: string;
+  showCounts?: boolean;
+  thresholdColor?: boolean;
 }
 
-export function ProgressBar({ current, total, width = 10 }: ProgressBarProps) {
-  const filled = Math.min(current, total);
-  const empty = Math.max(0, total - filled);
-  const bar = "█".repeat(filled) + "░".repeat(empty);
-  const pct = total > 0 ? Math.round((filled / total) * 100) : 0;
+export function ProgressBar({
+  current,
+  total,
+  width = 12,
+  label,
+  showCounts = true,
+  thresholdColor = false,
+}: ProgressBarProps) {
+  const safeTotal = Math.max(0, total);
+  const safeCurrent = Math.max(0, Math.min(current, safeTotal));
+  const pct = safeTotal > 0 ? Math.round((safeCurrent / safeTotal) * 100) : 0;
+  const bar = renderMeterString(pct, width);
+  const barColor = thresholdColor ? percentColor(pct) : colors.purple;
 
   return (
     <Box flexDirection="row">
-      <Text color={colors.purple}>{bar}</Text>
-      <Text color={colors.textDim}> {filled}/{total}</Text>
-      <Text color={colors.textMuted}> {pct}%</Text>
+      {label && <Text color={colors.textDim}>{label} </Text>}
+      <Text color={barColor}>{bar}</Text>
+      {showCounts && (
+        <Text color={colors.textDim}> {safeCurrent}/{safeTotal}</Text>
+      )}
+      <Text color={thresholdColor ? barColor : colors.textMuted}> {String(pct).padStart(3)}%</Text>
+    </Box>
+  );
+}
+
+interface MeterBarProps {
+  percent: number;
+  width?: number;
+  label?: string;
+  detail?: string;
+  color?: string;
+}
+
+export function MeterBar({ percent, width = 14, label, detail, color }: MeterBarProps) {
+  const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+  const barColor = color ?? percentColor(clamped);
+  const bar = renderMeterString(clamped, width);
+
+  return (
+    <Box flexDirection="row">
+      {label && <Text color={colors.textDim}>{label} </Text>}
+      <Text color={barColor}>{bar}</Text>
+      <Text color={barColor} bold> {String(clamped).padStart(3)}%</Text>
+      {detail && <Text color={colors.textMuted}> {detail}</Text>}
     </Box>
   );
 }

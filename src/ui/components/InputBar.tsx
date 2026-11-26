@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import { Box, Text, useInput } from "ink";
 import { colors } from "../theme.js";
 
@@ -6,6 +6,7 @@ interface InputBarProps {
   onSubmit: (value: string) => void;
   onEmptySubmit?: () => void;
   onNavigate?: (direction: "up" | "down") => void;
+  onChange?: (value: string) => void;
   placeholder?: string;
   focused?: boolean;
   prompt?: string;
@@ -18,9 +19,10 @@ export function InputBar({
   onSubmit,
   onEmptySubmit,
   onNavigate,
+  onChange,
   placeholder = "Type a command...",
   focused = true,
-  prompt = ">",
+  prompt = "❯",
   masked = false,
   history = [],
   completions = [],
@@ -28,7 +30,22 @@ export function InputBar({
   const [value, setValue] = useState("");
   const histIdx = useRef(history.length);
   const draft = useRef("");
-  const tabIdx = useRef(0);
+  const tabIdx = useRef(-1);
+
+  const updateValue = (next: string) => {
+    setValue(next);
+    onChange?.(next);
+  };
+
+  // Compute inline ghost suggestion for the first matching completion
+  const ghostSuggestion = useMemo(() => {
+    if (masked || !value.trim() || completions.length === 0) return "";
+    const lower = value.toLowerCase();
+    const match = completions.find(
+      (c) => c.toLowerCase().startsWith(lower) && c.length > value.length
+    );
+    return match ? match.slice(value.length) : "";
+  }, [value, completions, masked]);
 
   useInput(
     (input, key) => {
@@ -40,9 +57,10 @@ export function InputBar({
         } else {
           onSubmit("");
         }
-        setValue("");
+        updateValue("");
         histIdx.current = history.length;
         draft.current = "";
+        tabIdx.current = -1;
         return;
       }
       if (key.tab && !key.ctrl && completions.length > 0) {
@@ -51,7 +69,7 @@ export function InputBar({
           const matches = completions.filter((c) => c.toLowerCase().startsWith(prefix));
           if (matches.length > 0) {
             tabIdx.current = (tabIdx.current + 1) % matches.length;
-            setValue(matches[tabIdx.current % matches.length]);
+            updateValue(matches[tabIdx.current]);
             return;
           }
         }
@@ -60,7 +78,7 @@ export function InputBar({
         if (value.length > 0 && history.length > 0) {
           if (histIdx.current === history.length) draft.current = value;
           histIdx.current = Math.max(0, histIdx.current - 1);
-          setValue(history[histIdx.current] ?? "");
+          updateValue(history[histIdx.current] ?? "");
         } else if (onNavigate) {
           onNavigate("up");
         }
@@ -69,33 +87,43 @@ export function InputBar({
       if (key.downArrow) {
         if (value.length > 0 && history.length > 0) {
           histIdx.current = Math.min(history.length, histIdx.current + 1);
-          setValue(histIdx.current === history.length ? draft.current : (history[histIdx.current] ?? ""));
+          updateValue(histIdx.current === history.length ? draft.current : (history[histIdx.current] ?? ""));
         } else if (onNavigate) {
           onNavigate("down");
         }
         return;
       }
       if (key.backspace || key.delete) {
-        setValue((v) => v.slice(0, -1));
+        tabIdx.current = -1;
+        updateValue(value.slice(0, -1));
         return;
       }
       if (key.ctrl && input === "u") {
-        setValue("");
+        tabIdx.current = -1;
+        updateValue("");
+        return;
+      }
+      if (key.ctrl && input === "w") {
+        tabIdx.current = -1;
+        updateValue(value.replace(/\s*\S+\s*$/, ""));
         return;
       }
       if (input && !key.ctrl && !key.meta && !key.escape && !key.tab) {
-        setValue((v) => v + input);
+        tabIdx.current = -1;
+        updateValue(value + input);
       }
     },
     { isActive: focused }
   );
 
-  const displayValue = masked ? "*".repeat(value.length) : value;
+  const displayValue = masked ? "•".repeat(value.length) : value;
 
-  const maxW = Math.max(20, (process.stdout.columns || 80) - 6);
+  const maxW = Math.max(20, (process.stdout.columns || 80) - 8);
   const truncatedValue = displayValue.length > maxW
     ? displayValue.slice(0, maxW - 1) + "…"
     : displayValue;
+  const remainingW = Math.max(0, maxW - truncatedValue.length);
+  const truncatedGhost = ghostSuggestion.slice(0, remainingW);
   const truncatedPlaceholder = placeholder.length > maxW
     ? placeholder.slice(0, maxW - 1) + "…"
     : placeholder;
@@ -109,15 +137,23 @@ export function InputBar({
       flexShrink={0}
       overflow="hidden"
     >
-      <Text color={colors.purple} bold>
+      <Text color={focused ? colors.purpleBright : colors.textMuted} bold>
         {prompt}{" "}
       </Text>
       {value.length > 0 ? (
-        <Text color={colors.text} wrap="truncate">{truncatedValue}</Text>
+        <>
+          <Text color={colors.textBright} wrap="truncate">{truncatedValue}</Text>
+          {focused && <Text color={colors.purpleBright}>▎</Text>}
+          {truncatedGhost && (
+            <Text color={colors.textMuted} wrap="truncate">{truncatedGhost}</Text>
+          )}
+        </>
       ) : (
-        <Text color={colors.textMuted} wrap="truncate">{truncatedPlaceholder}</Text>
+        <>
+          {focused && <Text color={colors.purpleBright}>▎</Text>}
+          <Text color={colors.textMuted} wrap="truncate">{truncatedPlaceholder}</Text>
+        </>
       )}
-      {focused && <Text color={colors.purple}>▎</Text>}
     </Box>
   );
 }

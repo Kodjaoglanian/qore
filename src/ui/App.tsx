@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Box, Text, useApp, useInput, useStdin } from "ink";
-import { colors } from "./theme.js";
+import { colors, setActiveTheme, cycleTheme, getActiveTheme, THEME_NAMES, THEMES } from "./theme.js";
 import pkg from "../../package.json" with { type: "json" };
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
@@ -9,21 +9,52 @@ import { HelpScreen } from "./HelpScreen.js";
 import { WikiScreen } from "./WikiScreen.js";
 import { ConnectionsScreen } from "./ConnectionsScreen.js";
 import { DashboardScreen } from "./DashboardScreen.js";
+import { HealthScreen } from "./HealthScreen.js";
+import { StorageScreen } from "./StorageScreen.js";
+import { ProvidersScreen } from "./ProvidersScreen.js";
 import { ServiceScreen } from "./ServiceScreen.js";
 import { StatusBar } from "./components/StatusBar.js";
+import { CommandPalette, type PaletteItem } from "./components/CommandPalette.js";
 import { Orchestrator } from "../core/orchestrator.js";
 import { Vault } from "../core/vault/vault.js";
 import { SocketBridge } from "../core/vault/socket-bridge.js";
+import { loadConfig, saveConfig, type ThemeName } from "../core/config.js";
+import { LocalS3Provider } from "../core/providers/localS3.js";
+import { AwsS3Provider } from "../core/providers/awsS3.js";
+import { LocalPubSub } from "../core/providers/messaging.js";
 import type { ConnectionConfig } from "../core/vault/types.js";
 import { CONNECTION_ICONS } from "../core/vault/types.js";
-import type { ProbeResult } from "../core/types.js";
+import type { ProbeResult, ProviderType, StorageProvider, MessagingProvider } from "../core/types.js";
 
 interface ActiveSession {
   sessionId: string;
   conn: ConnectionConfig;
 }
 
-type Screen = "welcome" | "discover" | "help" | "wiki" | "connections" | "service" | "dashboard";
+type Screen =
+  | "welcome"
+  | "discover"
+  | "help"
+  | "wiki"
+  | "connections"
+  | "service"
+  | "dashboard"
+  | "health"
+  | "storage"
+  | "providers";
+
+const SCREEN_TITLES: Record<Screen, string> = {
+  welcome: "Home",
+  discover: "Discover",
+  help: "Help",
+  wiki: "Wiki",
+  connections: "Connections",
+  service: "Service",
+  dashboard: "Dashboard",
+  health: "Health",
+  storage: "Storage",
+  providers: "Providers",
+};
 
 export function App() {
   const { exit } = useApp();
@@ -38,13 +69,41 @@ export function App() {
   const [socketBridge, setSocketBridge] = useState<SocketBridge | null>(null);
   const [activeConns, setActiveConns] = useState<ActiveSession[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [themeTick, setThemeTick] = useState(0);
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Hybrid providers state
+  const [storageType, setStorageType] = useState<ProviderType>("local");
+  const [messagingType, setMessagingType] = useState<ProviderType>("local");
+  const localS3Ref = useRef<LocalS3Provider | null>(null);
+  const awsS3Ref = useRef<AwsS3Provider | null>(null);
+  const localPubSubRef = useRef<LocalPubSub | null>(null);
+
   const sessionCounter = useRef(0);
 
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+  }, []);
+
   useEffect(() => {
-    setRawMode(true);
-    orchestrator.isDockerAvailable().then((avail) => {
-      setDockerStatus(avail ? "connected" : "disconnected");
-    });
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const getStorageProvider = useCallback((): StorageProvider => {
+    if (storageType === "aws") {
+      if (!awsS3Ref.current) awsS3Ref.current = new AwsS3Provider();
+      return awsS3Ref.current;
+    }
+    if (!localS3Ref.current) localS3Ref.current = new LocalS3Provider();
+    return localS3Ref.current;
+  }, [storageType]);
+
+  const getMessagingProvider = useCallback((): MessagingProvider => {
+    if (!localPubSubRef.current) localPubSubRef.current = new LocalPubSub();
+    return localPubSubRef.current;
   }, []);
 
   const runDiscovery = useCallback(async () => {
@@ -61,10 +120,59 @@ export function App() {
     }
   }, [orchestrator]);
 
+  useEffect(() => {
+    try {
+      setRawMode(true);
+    } catch {
+      // ignore if terminal does not support raw mode
+    }
+    const cfg = loadConfig();
+    if (cfg.theme && THEME_NAMES.includes(cfg.theme)) {
+      setActiveTheme(cfg.theme);
+      setThemeTick((t) => t + 1);
+    }
+    if (cfg.autoProbeOnStart) {
+      runDiscovery();
+    } else {
+      orchestrator.isDockerAvailable().then((avail) => {
+        setDockerStatus(avail ? "connected" : "disconnected");
+      });
+    }
+  }, []);
+
+  const applyTheme = useCallback((name?: string) => {
+    if (name && THEME_NAMES.includes(name as ThemeName)) {
+      setActiveTheme(name as ThemeName);
+      saveConfig({ theme: name as ThemeName });
+      setThemeTick((t) => t + 1);
+      showToast(`Theme: ${THEMES[name as ThemeName].label}`);
+    } else {
+      const next = cycleTheme();
+      saveConfig({ theme: next });
+      setThemeTick((t) => t + 1);
+      showToast(`Theme: ${THEMES[next].label}`);
+    }
+  }, [showToast]);
+
+  const lockVault = useCallback(() => {
+    if (socketBridge) {
+      socketBridge.stop();
+      setSocketBridge(null);
+    }
+    if (vault) {
+      vault.lock();
+      setVault(null);
+      setActiveConns([]);
+      setScreen("welcome");
+      showToast("Vault locked");
+    }
+  }, [socketBridge, vault, showToast]);
+
   const handleCommand = useCallback(
     (cmd: string) => {
       const trimmed = cmd.trim().toLowerCase();
-      const command = trimmed.split(/\s+/)[0];
+      const parts = trimmed.split(/\s+/);
+      const command = parts[0];
 
       switch (command) {
         case "discover":
@@ -82,8 +190,35 @@ export function App() {
           if (vault && vault.isUnlocked()) {
             setScreen("dashboard");
           } else {
+            showToast("Unlock vault to view Dashboard");
             setScreen("connections");
           }
+          break;
+        case "health":
+          if (vault && vault.isUnlocked()) {
+            setScreen("health");
+          } else {
+            showToast("Unlock vault to view Health Monitor");
+            setScreen("connections");
+          }
+          break;
+        case "storage":
+        case "s3":
+          setScreen("storage");
+          break;
+        case "providers":
+        case "provider":
+          setScreen("providers");
+          break;
+        case "theme":
+          applyTheme(parts[1]);
+          break;
+        case "lock":
+          lockVault();
+          break;
+        case "refresh":
+          runDiscovery();
+          showToast("Refreshing local telemetry...");
           break;
         case "back":
         case "home":
@@ -105,6 +240,7 @@ export function App() {
         case "exit":
           if (socketBridge) socketBridge.stop();
           if (vault) vault.lock();
+          localS3Ref.current?.close();
           exit();
           process.exit(0);
           break;
@@ -114,7 +250,7 @@ export function App() {
           break;
       }
     },
-    [runDiscovery, exit, vault, socketBridge, screen]
+    [runDiscovery, exit, vault, socketBridge, screen, applyTheme, lockVault, showToast]
   );
 
   const handleVaultUnlock = useCallback((v: Vault) => {
@@ -123,7 +259,8 @@ export function App() {
     if (bridge.start()) {
       setSocketBridge(bridge);
     }
-  }, []);
+    showToast("Vault unlocked");
+  }, [showToast]);
 
   const handleCloseConn = useCallback(() => {
     setActiveConns((conns) => {
@@ -147,14 +284,79 @@ export function App() {
     setScreen("service");
   }, []);
 
-  useInput((input, key) => {
-    // Only handle escape on help screen — DiscoverScreen manages its own escape
-    if (key.escape && screen === "help") {
-      setScreen("welcome");
+  const paletteItems = useMemo<PaletteItem[]>(() => {
+    const items: PaletteItem[] = [
+      { id: "nav-home", label: "Home", category: "Screen", description: "Welcome & live telemetry", icon: "◈", color: colors.purpleBright, action: () => setScreen("welcome") },
+      { id: "nav-discover", label: "Discover", category: "Screen", description: "Scan ports, Docker, processes & services", icon: "◆", color: colors.cyan, action: () => { setScreen("discover"); runDiscovery(); } },
+      { id: "nav-connections", label: "Connections & Vault", category: "Screen", description: "Manage saved services & credentials", icon: "◈", color: colors.purple, action: () => setScreen("connections") },
+      { id: "nav-dashboard", label: "Dashboard", category: "Screen", description: "Multi-service live status overview", icon: "▣", color: colors.green, action: () => handleCommand("dashboard") },
+      { id: "nav-health", label: "Health Monitor", category: "Screen", description: "Sparklines, latency & uptime %", icon: "♥", color: colors.cyan, action: () => handleCommand("health") },
+      { id: "nav-storage", label: "Storage (S3)", category: "Screen", description: "Local Emulated S3 & AWS buckets", icon: "▤", color: colors.blue, action: () => setScreen("storage") },
+      { id: "nav-providers", label: "Hybrid Providers", category: "Screen", description: "Switch Storage & Pub/Sub providers", icon: "⇄", color: colors.yellow, action: () => setScreen("providers") },
+      { id: "nav-wiki", label: "Wiki Documentation", category: "Screen", description: "Built-in Qore documentation book", icon: "▥", color: colors.blue, action: () => setScreen("wiki") },
+      { id: "nav-help", label: "Help Reference", category: "Screen", description: "Searchable command cheat sheet", icon: "?", color: colors.purple, action: () => setScreen("help") },
+      { id: "act-refresh", label: "Refresh Probe", category: "Action", description: "Re-scan local host, ports & Docker", icon: "⟳", color: colors.cyan, action: () => handleCommand("refresh") },
+    ];
+
+    if (vault && vault.isUnlocked()) {
+      for (const conn of vault.getConnections()) {
+        items.push({
+          id: `conn-${conn.id}`,
+          label: conn.name,
+          category: conn.type.toUpperCase(),
+          description: `Connect to ${conn.host}:${conn.port}`,
+          icon: CONNECTION_ICONS[conn.type] ?? "●",
+          color: colors.green,
+          action: () => handleConnect(conn),
+        });
+      }
+      items.push({
+        id: "act-lock",
+        label: "Lock Vault",
+        category: "Action",
+        description: "Zero encryption key & close sessions",
+        icon: "○",
+        color: colors.yellow,
+        action: lockVault,
+      });
     }
+
+    for (const t of THEME_NAMES) {
+      items.push({
+        id: `theme-${t}`,
+        label: `Theme: ${THEMES[t].label}`,
+        category: "Theme",
+        description: `Switch palette to ${t}`,
+        icon: "◐",
+        color: THEMES[t].palette.purple,
+        action: () => applyTheme(t),
+      });
+    }
+
+    items.push({
+      id: "act-quit",
+      label: "Quit Qore",
+      category: "Action",
+      description: "Lock vault and exit",
+      icon: "✕",
+      color: colors.red,
+      action: () => handleCommand("quit"),
+    });
+
+    return items;
+  }, [vault, themeTick, runDiscovery, handleCommand, handleConnect, lockVault, applyTheme]);
+
+  useInput((input, key) => {
+    if (key.ctrl && input === "k") {
+      setPaletteOpen((open) => !open);
+      return;
+    }
+    if (paletteOpen) return;
+
     if (key.ctrl && input === "c") {
       if (socketBridge) socketBridge.stop();
       if (vault) vault.lock();
+      localS3Ref.current?.close();
       exit();
     }
     if (screen === "service" && activeConns.length > 1) {
@@ -172,97 +374,173 @@ export function App() {
 
   const portCount = probe?.ports.length ?? 0;
   const containerCount = probe?.containers.length ?? 0;
+  const savedConnCount = vault?.isUnlocked() ? vault.getConnections().length : 0;
 
   const contentHeight = Math.max(3, termHeight - 4);
+  const screenFocused = !paletteOpen;
 
   return (
-    <Box flexDirection="column" width={termWidth} height={termHeight} overflow="hidden">
+    <Box key={`theme-${themeTick}`} flexDirection="column" width={termWidth} height={termHeight} overflow="hidden">
       <StatusBar
-        mode={screen.charAt(0).toUpperCase() + screen.slice(1)}
+        mode={SCREEN_TITLES[screen]}
         dockerStatus={dockerStatus}
         portCount={portCount}
         containerCount={containerCount}
-        storageProvider={vault?.isUnlocked() ? "Vault [on]" : "--"}
+        storageProvider={storageType}
         vaultUnlocked={vault?.isUnlocked()}
+        activeTabs={activeConns.length}
       />
       <Box width={termWidth} height={1}>
         <Text color={colors.borderMuted}>{"─".repeat(termWidth)}</Text>
       </Box>
 
       <Box flexDirection="column" width={termWidth} height={contentHeight} overflow="hidden">
-        {screen === "welcome" && <WelcomeScreen onCommand={handleCommand} vaultUnlocked={vault?.isUnlocked()} />}
-        {screen === "discover" && (
-          <DiscoverScreen probe={probe} scanning={scanning} onCommand={handleCommand} onRefresh={runDiscovery} />
-        )}
-        {screen === "help" && <HelpScreen onCommand={handleCommand} />}
-        {screen === "wiki" && <WikiScreen onBack={() => setScreen("welcome")} />}
-        {screen === "connections" && (
-          <ConnectionsScreen
-            key={vault ? "unlocked" : "locked"}
-            vault={vault}
-            onVaultUnlock={handleVaultUnlock}
-            onConnect={handleConnect}
-            onBack={() => setScreen("welcome")}
-            activeConns={activeConns}
+        {paletteOpen && (
+          <CommandPalette
+            items={paletteItems}
+            onClose={() => setPaletteOpen(false)}
+            width={termWidth}
+            height={contentHeight}
           />
         )}
-        {screen === "dashboard" && vault && vault.isUnlocked() && (
-          <DashboardScreen
-            vault={vault}
-            onConnect={handleConnect}
-            onBack={() => setScreen("welcome")}
-          />
-        )}
-        {screen === "service" && activeConns.length > 0 && (
-          <>
-            {activeConns.length > 1 && (
-              <Box flexDirection="column" width={termWidth} flexShrink={0}>
-                <Box flexDirection="row" height={1} width={termWidth} overflow="hidden">
-                  {activeConns.map((s, i) => (
-                    <Box key={s.sessionId} marginRight={1}>
-                      <Text color={i === activeIdx ? colors.purpleBright : colors.textMuted}>
-                        {i === activeIdx ? "▸ " : "  "}{CONNECTION_ICONS[s.conn.type]} {s.conn.name}
-                        {i === activeIdx ? " ◂" : ""}
-                      </Text>
-                    </Box>
-                  ))}
-                </Box>
-                <Box height={1} width={termWidth} overflow="hidden">
-                  <Text color={colors.textDim}> {"Ctrl+Tab switch · close to close tab · back for connections"}</Text>
-                </Box>
-              </Box>
+        <Box
+          flexDirection="column"
+          width={termWidth}
+          height={contentHeight}
+          display={paletteOpen ? "none" : "flex"}
+          overflow="hidden"
+        >
+            {screen === "welcome" && (
+              <WelcomeScreen
+                onCommand={handleCommand}
+                vaultUnlocked={vault?.isUnlocked()}
+                savedConnCount={savedConnCount}
+                probe={probe}
+                scanning={scanning}
+                focused={screenFocused}
+              />
             )}
-            {activeConns.map((s, i) => (
-              <Box
-                key={s.sessionId}
-                display={i === activeIdx ? "flex" : "none"}
-                width={termWidth}
-                overflow="hidden"
-              >
-                <ServiceScreen
-                  conn={s.conn}
-                  onBack={() => setScreen("connections")}
-                  onClose={handleCloseConn}
-                  onNewSession={() => handleConnect(s.conn)}
-                  tabCount={activeConns.length}
-                  tabIdx={i}
-                  focused={i === activeIdx}
-                  heightOffset={4 + (activeConns.length > 1 ? 2 : 0)}
-                />
-              </Box>
-            ))}
-          </>
-        )}
+            {screen === "discover" && (
+              <DiscoverScreen
+                probe={probe}
+                scanning={scanning}
+                onCommand={handleCommand}
+                onRefresh={runDiscovery}
+                focused={screenFocused}
+              />
+            )}
+            {screen === "help" && <HelpScreen onCommand={handleCommand} focused={screenFocused} />}
+            {screen === "wiki" && <WikiScreen onBack={() => setScreen("welcome")} />}
+            {screen === "connections" && (
+              <ConnectionsScreen
+                key={vault ? "unlocked" : "locked"}
+                vault={vault}
+                onVaultUnlock={handleVaultUnlock}
+                onConnect={handleConnect}
+                onBack={() => setScreen("welcome")}
+                activeConns={activeConns}
+              />
+            )}
+            {screen === "dashboard" && vault && vault.isUnlocked() && (
+              <DashboardScreen
+                vault={vault}
+                onConnect={handleConnect}
+                onBack={() => setScreen("welcome")}
+                onOpenHealth={() => setScreen("health")}
+                focused={screenFocused}
+              />
+            )}
+            {screen === "health" && vault && vault.isUnlocked() && (
+              <HealthScreen
+                vault={vault}
+                onConnect={handleConnect}
+                onBack={() => setScreen("welcome")}
+                onOpenDashboard={() => setScreen("dashboard")}
+                focused={screenFocused}
+              />
+            )}
+            {screen === "storage" && (
+              <StorageScreen
+                provider={getStorageProvider()}
+                onCommand={handleCommand}
+                focused={screenFocused}
+              />
+            )}
+            {screen === "providers" && (
+              <ProvidersScreen
+                currentStorage={storageType}
+                currentMessaging={messagingType}
+                messagingProvider={getMessagingProvider()}
+                onSwitchStorage={setStorageType}
+                onSwitchMessaging={setMessagingType}
+                onCommand={handleCommand}
+                focused={screenFocused}
+              />
+            )}
+            {screen === "service" && activeConns.length > 0 && (
+              <>
+                {activeConns.length > 1 && (
+                  <Box flexDirection="column" width={termWidth} flexShrink={0}>
+                    <Box flexDirection="row" height={1} width={termWidth} overflow="hidden">
+                      {activeConns.map((s, i) => (
+                        <Box key={s.sessionId} marginRight={1}>
+                          <Text color={i === activeIdx ? colors.purpleBright : colors.textMuted} bold={i === activeIdx}>
+                            {i === activeIdx ? "▸ " : "  "}[{i + 1}] {CONNECTION_ICONS[s.conn.type]} {s.conn.name}
+                            {i === activeIdx ? " ◂" : ""}
+                          </Text>
+                        </Box>
+                      ))}
+                    </Box>
+                    <Box height={1} width={termWidth} overflow="hidden">
+                      <Text color={colors.textDim}>{" Ctrl+Tab switch · close to close tab · new for duplicate session · back for connections"}</Text>
+                    </Box>
+                  </Box>
+                )}
+                {activeConns.map((s, i) => (
+                  <Box
+                    key={s.sessionId}
+                    display={i === activeIdx ? "flex" : "none"}
+                    width={termWidth}
+                    overflow="hidden"
+                  >
+                    <ServiceScreen
+                      conn={s.conn}
+                      onBack={() => setScreen("connections")}
+                      onClose={handleCloseConn}
+                      onNewSession={() => handleConnect(s.conn)}
+                      tabCount={activeConns.length}
+                      tabIdx={i}
+                      focused={screenFocused && i === activeIdx}
+                      heightOffset={4 + (activeConns.length > 1 ? 2 : 0)}
+                    />
+                  </Box>
+                ))}
+              </>
+            )}
+        </Box>
       </Box>
 
       <Box width={termWidth} height={1}>
         <Text color={colors.borderMuted}>{"─".repeat(termWidth)}</Text>
       </Box>
       <Box width={termWidth} height={1} paddingX={1} justifyContent="space-between">
-        <Text color={colors.purpleDim}>Qore</Text>
-        <Text color={colors.textMuted}>v{pkg.version}</Text>
-        <Text color={colors.borderMuted}>│</Text>
-        <Text color={colors.textMuted}>Vault {vault?.isUnlocked() ? "[unlocked]" : "[locked]"}</Text>
+        <Box gap={1}>
+          <Text color={colors.purpleBright} bold>◈ Qore</Text>
+          <Text color={colors.textMuted}>v{pkg.version}</Text>
+          {toast && (
+            <>
+              <Text color={colors.borderMuted}>│</Text>
+              <Text color={colors.cyan} bold>{toast}</Text>
+            </>
+          )}
+        </Box>
+        <Box gap={1}>
+          <Text color={colors.textMuted}>Theme: <Text color={colors.purple}>{getActiveTheme()}</Text></Text>
+          <Text color={colors.borderMuted}>│</Text>
+          <Text color={colors.textMuted}>
+            Vault <Text color={vault?.isUnlocked() ? colors.green : colors.textMuted}>{vault?.isUnlocked() ? "[unlocked]" : "[locked]"}</Text>
+          </Text>
+        </Box>
       </Box>
     </Box>
   );

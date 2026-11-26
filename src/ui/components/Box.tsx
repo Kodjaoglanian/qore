@@ -5,6 +5,7 @@ import { colors } from "../theme.js";
 interface BoxProps {
   children?: React.ReactNode;
   title?: string;
+  rightTitle?: string;
   focused?: boolean;
   width?: number | string;
   height?: number;
@@ -22,6 +23,7 @@ interface BoxProps {
 export function StyledBox({
   children,
   title,
+  rightTitle,
   focused = false,
   width = "100%",
   height,
@@ -37,7 +39,7 @@ export function StyledBox({
 }: BoxProps) {
   const border = borderColor ?? (focused ? colors.border : colors.borderMuted);
   const borderStyle = variant === "overlay" ? "double" : "round";
-  const titleColor = focused ? colors.purple : variant === "overlay" ? colors.purpleBright : colors.textMuted;
+  const titleColor = focused ? colors.purpleBright : variant === "overlay" ? colors.purpleBright : colors.textDim;
 
   return (
     <Box
@@ -53,10 +55,19 @@ export function StyledBox({
       borderColor={border}
       overflow={overflow}
     >
-      {title && (
-        <Text color={titleColor} bold={focused || variant === "overlay"}>
-          {title}
-        </Text>
+      {(title || rightTitle) && (
+        <Box justifyContent="space-between" width="100%" flexShrink={0}>
+          {title ? (
+            <Text color={titleColor} bold={focused || variant === "overlay"}>
+              {focused ? "▸ " : ""}{title}
+            </Text>
+          ) : (
+            <Text> </Text>
+          )}
+          {rightTitle && (
+            <Text color={colors.textMuted}>{rightTitle}</Text>
+          )}
+        </Box>
       )}
       {children}
     </Box>

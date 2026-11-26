@@ -1,6 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
-import { colors } from "../theme.js";
+import { colors, getActiveTheme } from "../theme.js";
+import { Spinner } from "./Spinner.js";
 
 interface StatusBarProps {
   mode: string;
@@ -9,6 +10,7 @@ interface StatusBarProps {
   containerCount: number;
   storageProvider: string;
   vaultUnlocked?: boolean;
+  activeTabs?: number;
 }
 
 export function StatusBar({
@@ -18,6 +20,7 @@ export function StatusBar({
   containerCount,
   storageProvider,
   vaultUnlocked,
+  activeTabs = 0,
 }: StatusBarProps) {
   const dockerColor =
     dockerStatus === "connected"
@@ -26,38 +29,52 @@ export function StatusBar({
         ? colors.yellow
         : colors.red;
 
-  const dockerLabel =
-    dockerStatus === "connected"
-      ? "[up]"
-      : dockerStatus === "scanning"
-        ? "[~]"
-        : "[dn]";
+  const themeName = getActiveTheme();
 
   return (
     <Box justifyContent="space-between" width="100%" paddingX={1} overflow="hidden">
       <Box gap={1}>
-        <Text color={colors.purple} bold>
-          {mode}
-        </Text>
+        <Text color={colors.purpleBright} bold>◈ {mode}</Text>
         <Text color={colors.borderMuted}>│</Text>
-        <Text color={dockerColor}>{dockerLabel} Docker</Text>
+        {dockerStatus === "scanning" ? (
+          <Spinner label="Docker" color={colors.yellow} />
+        ) : (
+          <Text color={dockerColor}>
+            {dockerStatus === "connected" ? "●" : "○"} Docker
+          </Text>
+        )}
         <Text color={colors.borderMuted}>│</Text>
         <Text color={colors.textDim}>
-          Ports: <Text color={colors.text}>{portCount}</Text>
+          ◆ <Text color={colors.cyan} bold>{portCount}</Text> ports
         </Text>
         <Text color={colors.borderMuted}>│</Text>
         <Text color={colors.textDim}>
-          Containers: <Text color={colors.text}>{containerCount}</Text>
+          ▣ <Text color={colors.textBright} bold>{containerCount}</Text> ctrs
         </Text>
+        {activeTabs > 0 && (
+          <>
+            <Text color={colors.borderMuted}>│</Text>
+            <Text color={colors.purpleBright} bold>
+              ⊞ {activeTabs} {activeTabs === 1 ? "tab" : "tabs"}
+            </Text>
+          </>
+        )}
       </Box>
       <Box gap={1}>
         <Text color={colors.textDim}>
-          Vault: <Text color={vaultUnlocked ? colors.green : colors.textMuted} bold>{vaultUnlocked ? "[unlocked]" : "[locked]"}</Text>
+          Vault:{" "}
+          <Text color={vaultUnlocked ? colors.green : colors.textMuted} bold={vaultUnlocked}>
+            {vaultUnlocked ? "● open" : "○ locked"}
+          </Text>
         </Text>
         <Text color={colors.borderMuted}>│</Text>
         <Text color={colors.textDim}>
-          Storage: <Text color={colors.purple}>{storageProvider}</Text>
+          S3: <Text color={colors.purple}>{storageProvider}</Text>
         </Text>
+        <Text color={colors.borderMuted}>│</Text>
+        <Text color={colors.purpleDim}>{themeName}</Text>
+        <Text color={colors.borderMuted}>│</Text>
+        <Text color={colors.purple} bold>^K</Text>
       </Box>
     </Box>
   );

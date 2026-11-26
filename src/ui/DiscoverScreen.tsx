@@ -5,6 +5,8 @@ import { InputBar } from "./components/InputBar.js";
 import { ShortcutBar } from "./components/ShortcutBar.js";
 import { Breadcrumb } from "./components/Breadcrumb.js";
 import { ScrollIndicator } from "./components/ScrollIndicator.js";
+import { MeterBar } from "./components/ProgressBar.js";
+import { Spinner } from "./components/Spinner.js";
 import { colors } from "./theme.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import {
@@ -24,6 +26,7 @@ interface DiscoverScreenProps {
   scanning: boolean;
   onCommand: (cmd: string) => void;
   onRefresh: () => void;
+  focused?: boolean;
 }
 
 type Section = "overview" | "ports" | "containers" | "images" | "daemons" | "system" | "network" | "processes" | "services";
@@ -53,10 +56,18 @@ const SECTION_ICONS: Record<Section, string> = {
   services: "◐",
 };
 
+const DISCOVER_COMPLETIONS = [
+  ...SECTION_ORDER,
+  "filter ", "search ", "start", "stop", "restart", "remove", "rm", "logs", "inspect",
+  "stats", "exec ", "prune", "rm-image", "prune-images", "kill", "kill-9",
+  "svc-start", "svc-stop", "svc-restart", "svc-logs",
+  "batch-start", "batch-stop", "batch-restart", "refresh", "auto", "back", "quit",
+];
+
 const HEADER = 2;
 const FOOTER = 4;
 
-export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: DiscoverScreenProps) {
+export function DiscoverScreen({ probe, scanning, onCommand, onRefresh, focused = true }: DiscoverScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalSize();
   const margin = Math.max(1, Math.floor(termWidth * 0.02));
   const innerWidth = Math.max(30, termWidth - margin * 2 - 4);
@@ -70,6 +81,8 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [filter, setFilter] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [inputText, setInputText] = useState("");
+  const [cmdHistory, setCmdHistory] = useState<string[]>([]);
 
   const containers = probe?.containers ?? [];
   const ports = probe?.ports ?? [];
@@ -133,7 +146,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
   const sidebarW = 22;
   const mainW = innerWidth - sidebarW - 1;
   const availH = Math.max(8, termHeight - HEADER - FOOTER - 2);
-  const maxItems = Math.max(1, availH - 6);
+  const maxItems = Math.max(1, availH - 7);
 
   useEffect(() => {
     if (selectedIdx >= activeList.length && activeList.length > 0) {
@@ -291,6 +304,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
   const handleSubmit = useCallback(async (cmd: string) => {
     const trimmed = cmd.trim();
     if (!trimmed) return;
+    setCmdHistory((prev) => [...prev.slice(-49), trimmed]);
     const lower = trimmed.toLowerCase();
 
     if (lower.startsWith("filter ") || lower.startsWith("search ")) {
@@ -350,37 +364,45 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
     onCommand(lower);
   }, [handleContainerAction, handleImageAction, handlePrune, handleProcessAction, handleServiceAction, handleBatchAction, onRefresh, onCommand, section, autoRefresh, fContainers, selectedIdx]);
 
-  useInput((input, key) => {
-    if (overlay) {
-      if (key.escape) { setOverlay(null); setOverlayContent(""); }
-      if (key.upArrow) setOverlayScroll(o => Math.max(0, o - 1));
-      if (key.downArrow) setOverlayScroll(o => o + 1);
-      if (key.pageUp) setOverlayScroll(o => Math.max(0, o - 10));
-      if (key.pageDown) setOverlayScroll(o => o + 10);
-      return;
-    }
-    if (key.escape) { onCommand("back"); return; }
-    if (key.tab) {
-      setSection(s => {
-        const idx = SECTION_ORDER.indexOf(s);
-        return SECTION_ORDER[(idx + 1) % SECTION_ORDER.length];
-      });
-      setSelectedIdx(0); setScrollOffset(0); return;
-    }
-    if (input >= "1" && input <= "9") {
-      const idx = parseInt(input) - 1;
-      if (idx < SECTION_ORDER.length) {
-        setSection(SECTION_ORDER[idx]); setSelectedIdx(0); setScrollOffset(0);
+  useInput(
+    (input, key) => {
+      if (overlay) {
+        if (key.escape) { setOverlay(null); setOverlayContent(""); }
+        if (key.upArrow) setOverlayScroll(o => Math.max(0, o - 1));
+        if (key.downArrow) setOverlayScroll(o => o + 1);
+        if (key.pageUp) setOverlayScroll(o => Math.max(0, o - 10));
+        if (key.pageDown) setOverlayScroll(o => o + 10);
+        return;
       }
-      return;
-    }
-    if (activeList.length > 0) {
-      if (key.upArrow) setSelectedIdx(i => Math.max(0, i - 1));
-      if (key.downArrow) setSelectedIdx(i => Math.min(activeList.length - 1, i + 1));
-      if (key.pageUp) setSelectedIdx(i => Math.max(0, i - maxItems));
-      if (key.pageDown) setSelectedIdx(i => Math.min(activeList.length - 1, i + maxItems));
-    }
-  });
+      if (key.escape) { onCommand("back"); return; }
+
+      // Only switch sections with Tab / 1-9 when the input bar is empty so typing digits works normally!
+      if (inputText.length === 0) {
+        if (key.tab && !key.ctrl) {
+          setSection(s => {
+            const idx = SECTION_ORDER.indexOf(s);
+            return SECTION_ORDER[(idx + 1) % SECTION_ORDER.length];
+          });
+          setSelectedIdx(0); setScrollOffset(0); return;
+        }
+        if (input >= "1" && input <= "9" && !key.ctrl && !key.meta) {
+          const idx = parseInt(input) - 1;
+          if (idx < SECTION_ORDER.length) {
+            setSection(SECTION_ORDER[idx]); setSelectedIdx(0); setScrollOffset(0);
+          }
+          return;
+        }
+      }
+
+      if (activeList.length > 0 && inputText.length === 0) {
+        if (key.upArrow) setSelectedIdx(i => Math.max(0, i - 1));
+        if (key.downArrow) setSelectedIdx(i => Math.min(activeList.length - 1, i + 1));
+        if (key.pageUp) setSelectedIdx(i => Math.max(0, i - maxItems));
+        if (key.pageDown) setSelectedIdx(i => Math.min(activeList.length - 1, i + maxItems));
+      }
+    },
+    { isActive: focused }
+  );
 
   // --- Overlay view ---
   if (overlay) {
@@ -409,6 +431,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
         <Box marginTop={1}>
           <ShortcutBar shortcuts={[
             { key: "↑/↓", label: "scroll" },
+            { key: "PgUp/Dn", label: "page" },
             { key: "esc", label: "back" },
             { key: "^c", label: "quit" },
           ]} />
@@ -427,22 +450,96 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
   const runningContainers = containers.filter(c => c.state === "running").length;
   const activeServices = services.filter(s => s.activeState === "active").length;
 
+  function renderTableHeader(s: Section): React.ReactNode {
+    if (s === "containers") {
+      return (
+        <Box marginBottom={0}>
+          <Text color={colors.purpleDim} bold>
+            {"  "}{"NAME".padEnd(22)} {"IMAGE".padEnd(Math.floor(mainW * 0.38))} {"STATE".padStart(9)} {"STATUS"}
+          </Text>
+        </Box>
+      );
+    }
+    if (s === "ports") {
+      return (
+        <Box marginBottom={0}>
+          <Text color={colors.purpleDim} bold>
+            {"  "}{"PORT".padEnd(7)} {"SERVICE".padEnd(18)} {"PID".padEnd(11)} {"COMMAND"}
+          </Text>
+        </Box>
+      );
+    }
+    if (s === "images") {
+      return (
+        <Box marginBottom={0}>
+          <Text color={colors.purpleDim} bold>
+            {"  "}{"TAG".padEnd(35)} {"ID".padEnd(12)} {"SIZE".padStart(10)}
+          </Text>
+        </Box>
+      );
+    }
+    if (s === "daemons") {
+      return (
+        <Box marginBottom={0}>
+          <Text color={colors.purpleDim} bold>
+            {"  "}{"DAEMON".padEnd(24)} {"MGR".padEnd(8)} {"PID".padEnd(11)} {"STATUS"}
+          </Text>
+        </Box>
+      );
+    }
+    if (s === "processes") {
+      return (
+        <Box marginBottom={0}>
+          <Text color={colors.purpleDim} bold>
+            {"  "}{"PID".padEnd(7)} {"USER".padEnd(10)} {"CPU".padStart(6)} {"MEM".padStart(6)} {"COMMAND"}
+          </Text>
+        </Box>
+      );
+    }
+    if (s === "services") {
+      return (
+        <Box marginBottom={0}>
+          <Text color={colors.purpleDim} bold>
+            {"  "}{"SERVICE".padEnd(26)} {"STATE".padEnd(10)} {"SUB".padEnd(10)} {"DESCRIPTION"}
+          </Text>
+        </Box>
+      );
+    }
+    return null;
+  }
+
   // --- Main panel content ---
   function renderMainPanel(): React.ReactNode {
     if (section === "overview") {
+      const memPct = hostInfo && hostInfo.memoryTotal > 0 ? Math.round((hostInfo.memoryUsed / hostInfo.memoryTotal) * 100) : 0;
+      const swapPct = hostInfo && hostInfo.swapTotal > 0 ? Math.round((hostInfo.swapUsed / hostInfo.swapTotal) * 100) : 0;
       return (
         <Box flexDirection="column" overflow="hidden" height={availH - 4}>
           {hostInfo && (
             <Box flexDirection="column" marginBottom={1}>
-              <Text color={colors.purple} bold>System</Text>
-              <Text color={colors.text}>  {hostInfo.hostname} · {truncate(hostInfo.os, 20)} · {hostInfo.kernel}</Text>
-              <Text color={colors.textDim}>  CPU {hostInfo.cpuCores}c · {truncate(hostInfo.cpuModel, 35)}</Text>
-              <Text color={colors.textDim}>  Mem {formatBytes(hostInfo.memoryUsed)}/{formatBytes(hostInfo.memoryTotal)} · Load {hostInfo.loadAvg.map(l => l.toFixed(2)).join(" ")}</Text>
-              <Text color={colors.textDim}>  Uptime {hostInfo.uptime} · Swap {formatBytes(hostInfo.swapUsed)}/{formatBytes(hostInfo.swapTotal)}</Text>
+              <Text color={colors.purpleBright} bold>◈ System Health</Text>
+              <Text color={colors.text}>  {hostInfo.hostname} · {truncate(hostInfo.os, 24)} · {hostInfo.kernel} · up {hostInfo.uptime}</Text>
+              <Text color={colors.textDim}>  CPU {hostInfo.cpuCores} cores · {truncate(hostInfo.cpuModel, 38)} · Load {hostInfo.loadAvg.map(l => l.toFixed(2)).join(" ")}</Text>
+              <Box flexDirection="row" gap={2} paddingLeft={2}>
+                <MeterBar
+                  label="RAM "
+                  percent={memPct}
+                  width={12}
+                  detail={`${formatBytes(hostInfo.memoryUsed)}/${formatBytes(hostInfo.memoryTotal)}`}
+                />
+                {hostInfo.swapTotal > 0 && mainW > 64 && (
+                  <MeterBar
+                    label="Swap"
+                    percent={swapPct}
+                    width={8}
+                    detail={`${formatBytes(hostInfo.swapUsed)}/${formatBytes(hostInfo.swapTotal)}`}
+                  />
+                )}
+              </Box>
             </Box>
           )}
           <Box flexDirection="column">
-            <Text color={colors.purple} bold>Summary</Text>
+            <Text color={colors.purpleBright} bold>◈ Infrastructure Summary</Text>
             <Text color={runningContainers > 0 ? colors.green : colors.textMuted}>  ▣ {containers.length} containers ({runningContainers} running)</Text>
             <Text color={images.length > 0 ? colors.blue : colors.textMuted}>  ◇ {images.length} images</Text>
             <Text color={ports.length > 0 ? colors.cyan : colors.textMuted}>  ◆ {ports.length} open ports</Text>
@@ -453,45 +550,70 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
           </Box>
           {hostInfo && hostInfo.disks.length > 0 && (
             <Box flexDirection="column" marginTop={1}>
-              <Text color={colors.purple} bold>Disks</Text>
-              {hostInfo.disks.slice(0, 6).map((d, i) => {
-                const pct = parseInt(d.usePercent);
-                const color = pct > 90 ? colors.red : pct > 70 ? colors.yellow : colors.green;
+              <Text color={colors.purpleBright} bold>◈ Disks</Text>
+              {hostInfo.disks.slice(0, 5).map((d, i) => {
+                const pct = parseInt(d.usePercent, 10) || 0;
                 return (
-                  <Text key={i} color={colors.textDim}>  {truncate(d.mount, 16).padEnd(16)} <Text color={color}>{d.usePercent}</Text> · {d.size}</Text>
+                  <Box key={i} paddingLeft={2}>
+                    <MeterBar
+                      label={truncate(d.mount, 14).padEnd(14)}
+                      percent={pct}
+                      width={12}
+                      detail={d.size}
+                    />
+                  </Box>
                 );
               })}
             </Box>
           )}
-          <Box marginTop={1}>
-            <Text color={colors.textMuted}>  Press 2-9 or Tab to explore sections · type "filter" to search</Text>
-          </Box>
         </Box>
       );
     }
 
     if (section === "system") {
+      const memPct = hostInfo && hostInfo.memoryTotal > 0 ? Math.round((hostInfo.memoryUsed / hostInfo.memoryTotal) * 100) : 0;
+      const swapPct = hostInfo && hostInfo.swapTotal > 0 ? Math.round((hostInfo.swapUsed / hostInfo.swapTotal) * 100) : 0;
       return (
         <Box flexDirection="column" overflow="hidden" height={availH - 4}>
           {hostInfo ? (
             <>
-              <Text color={colors.purple} bold>Host Information</Text>
+              <Text color={colors.purpleBright} bold>◈ Host Information</Text>
               <Text color={colors.text}>  Hostname    {hostInfo.hostname}</Text>
               <Text color={colors.text}>  OS          {hostInfo.os}</Text>
               <Text color={colors.text}>  Kernel      {hostInfo.kernel}</Text>
               <Text color={colors.text}>  Uptime      {hostInfo.uptime}</Text>
               <Text color={colors.text}>  CPU         {hostInfo.cpuCores} cores · {hostInfo.cpuModel}</Text>
-              <Text color={colors.text}>  Memory      {formatBytes(hostInfo.memoryUsed)} / {formatBytes(hostInfo.memoryTotal)}</Text>
-              <Text color={colors.text}>  Swap        {formatBytes(hostInfo.swapUsed)} / {formatBytes(hostInfo.swapTotal)}</Text>
+              <Box paddingLeft={2}>
+                <MeterBar
+                  label={"Memory".padEnd(11)}
+                  percent={memPct}
+                  width={16}
+                  detail={`${formatBytes(hostInfo.memoryUsed)} / ${formatBytes(hostInfo.memoryTotal)}`}
+                />
+              </Box>
+              <Box paddingLeft={2}>
+                <MeterBar
+                  label={"Swap".padEnd(11)}
+                  percent={swapPct}
+                  width={16}
+                  detail={`${formatBytes(hostInfo.swapUsed)} / ${formatBytes(hostInfo.swapTotal)}`}
+                />
+              </Box>
               <Text color={colors.text}>  Load        {hostInfo.loadAvg.map(l => l.toFixed(2)).join("  ")}</Text>
               <Box marginTop={1}>
-                <Text color={colors.purple} bold>Disks</Text>
+                <Text color={colors.purpleBright} bold>◈ Disks</Text>
               </Box>
               {hostInfo.disks.map((d, i) => {
-                const pct = parseInt(d.usePercent);
-                const color = pct > 90 ? colors.red : pct > 70 ? colors.yellow : colors.green;
+                const pct = parseInt(d.usePercent, 10) || 0;
                 return (
-                  <Text key={i} color={colors.text}>  {truncate(d.mount, 20).padEnd(20)} <Text color={color}>{d.usePercent.padStart(4)}</Text> · {truncate(d.filesystem, 20)} · {d.size}</Text>
+                  <Box key={i} paddingLeft={2}>
+                    <MeterBar
+                      label={truncate(d.mount, 18).padEnd(18)}
+                      percent={pct}
+                      width={12}
+                      detail={`${truncate(d.filesystem, 16)} · ${d.size}`}
+                    />
+                  </Box>
                 );
               })}
             </>
@@ -505,17 +627,17 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
     if (section === "network") {
       return (
         <Box flexDirection="column" overflow="hidden" height={availH - 4}>
-          <Text color={colors.purple} bold>Network Interfaces ({netIfaces.length})</Text>
+          <Text color={colors.purpleBright} bold>◈ Network Interfaces ({netIfaces.length})</Text>
           {netIfaces.length > 0 ? netIfaces.slice(0, Math.floor(maxItems / 2)).map((iface, i) => (
             <Text key={i} color={i % 2 === 0 ? colors.text : colors.textMuted}>
-              {"  "}<Text color={iface.state === "UP" ? colors.green : colors.textMuted}>{truncate(iface.name, 12).padEnd(12)}</Text>
+              {"  "}<Text color={iface.state === "UP" ? colors.green : colors.textMuted}>{iface.state === "UP" ? "●" : "○"} {truncate(iface.name, 12).padEnd(12)}</Text>
               {" "}{iface.state.padEnd(6)}
               {" "}{iface.ipv4.join(", ") || "no IPv4"}
               {" "}<Text color={colors.textDim}>{iface.mac}</Text>
             </Text>
           )) : <Text color={colors.textMuted}>  No interfaces found.</Text>}
           <Box marginTop={1}>
-            <Text color={colors.purple} bold>Routes ({routes.length})</Text>
+            <Text color={colors.purpleBright} bold>◈ Routes ({routes.length})</Text>
           </Box>
           {routes.slice(0, Math.floor(maxItems / 3)).map((r, i) => (
             <Text key={i} color={colors.textDim}>  {truncate(r.destination, 18).padEnd(18)} via {truncate(r.gateway, 15).padEnd(15)} on {truncate(r.interface, 10)}</Text>
@@ -523,7 +645,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
           {firewall.length > 0 && (
             <>
               <Box marginTop={1}>
-                <Text color={colors.purple} bold>Firewall ({firewall.length})</Text>
+                <Text color={colors.purpleBright} bold>◈ Firewall ({firewall.length})</Text>
               </Box>
               {firewall.slice(0, Math.floor(maxItems / 3)).map((f, i) => (
                 <Text key={i} color={colors.textDim}>  {truncate(f.chain, 8).padEnd(8)} {truncate(f.target, 8).padEnd(8)} {truncate(f.protocol, 5).padEnd(5)} {truncate(f.source, 16)} → {truncate(f.destination, 16)}</Text>
@@ -546,6 +668,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
 
     return (
       <Box flexDirection="column" overflow="hidden" height={availH - 4}>
+        {renderTableHeader(section)}
         {visible.map((item, i) => {
           const realIdx = scrollOffset + i;
           const isSelected = realIdx === selectedIdx;
@@ -566,24 +689,25 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
 
     if (s === "containers") {
       const stateColor = item.state === "running" ? colors.green : colors.red;
+      const imgW = Math.floor(w * 0.38);
       return (
         <Box key={item.id} width={w}>
-          <Text color={selected ? colors.purple : stateColor}>{marker}</Text>
+          <Text color={selected ? colors.purpleBright : stateColor}>{marker}</Text>
           <Text color={fg} bold={selected}>{truncate(item.name, 22).padEnd(22)}</Text>
-          <Text color={colors.textDim}> {truncate(item.image, Math.floor(w * 0.4)).padEnd(Math.floor(w * 0.4))}</Text>
-          <Text color={stateColor}> {truncate(item.state, 9).padStart(9)}</Text>
-          <Text color={colors.textMuted}> {truncate(item.status, w - 22 - Math.floor(w * 0.4) - 10)}</Text>
+          <Text color={colors.textDim}> {truncate(item.image, imgW).padEnd(imgW)}</Text>
+          <Text color={stateColor} bold={item.state === "running"}> {truncate(item.state, 9).padStart(9)}</Text>
+          <Text color={colors.textMuted}> {truncate(item.status, Math.max(8, w - 22 - imgW - 12))}</Text>
         </Box>
       );
     }
     if (s === "ports") {
       return (
         <Box key={i} width={w}>
-          <Text color={selected ? colors.purple : colors.cyan}>{marker}</Text>
+          <Text color={selected ? colors.purpleBright : colors.cyan}>{marker}</Text>
           <Text color={fg} bold={selected}>{String(item.port).padEnd(7)}</Text>
-          <Text color={colors.textDim}> {truncate(item.service, 18).padEnd(18)}</Text>
+          <Text color={colors.cyan}> {truncate(item.service, 18).padEnd(18)}</Text>
           <Text color={colors.textMuted}> PID {String(item.pid).padEnd(7)}</Text>
-          <Text color={colors.textMuted}> {truncate(item.command, w - 40)}</Text>
+          <Text color={colors.textMuted}> {truncate(item.command, Math.max(8, w - 40))}</Text>
         </Box>
       );
     }
@@ -591,7 +715,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       const tag = item.tags[0] ?? "<none>";
       return (
         <Box key={item.id + i} width={w}>
-          <Text color={selected ? colors.purple : colors.blue}>{marker}</Text>
+          <Text color={selected ? colors.purpleBright : colors.blue}>{marker}</Text>
           <Text color={fg} bold={selected}>{truncate(tag, 35).padEnd(35)}</Text>
           <Text color={colors.textDim}> {item.id.padEnd(12)}</Text>
           <Text color={colors.textMuted}> {formatBytes(item.size).padStart(10)}</Text>
@@ -601,23 +725,24 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
     if (s === "daemons") {
       return (
         <Box key={i} width={w}>
-          <Text color={selected ? colors.purple : colors.yellow}>{marker}</Text>
+          <Text color={selected ? colors.purpleBright : colors.yellow}>{marker}</Text>
           <Text color={fg} bold={selected}>{truncate(item.name, 24).padEnd(24)}</Text>
           <Text color={colors.textDim}> {truncate(item.manager, 8).padEnd(8)}</Text>
           <Text color={colors.textMuted}> PID {String(item.pid).padEnd(7)}</Text>
-          <Text color={colors.textMuted}> {truncate(item.status, w - 48)}</Text>
+          <Text color={colors.textMuted}> {truncate(item.status, Math.max(8, w - 48))}</Text>
         </Box>
       );
     }
     if (s === "processes") {
+      const cpuColor = item.cpu > 50 ? colors.red : item.cpu > 15 ? colors.yellow : colors.green;
       return (
         <Box key={item.pid} width={w}>
-          <Text color={selected ? colors.purple : colors.red}>{marker}</Text>
+          <Text color={selected ? colors.purpleBright : colors.red}>{marker}</Text>
           <Text color={fg} bold={selected}>{String(item.pid).padEnd(7)}</Text>
           <Text color={colors.textDim}> {truncate(item.user, 10).padEnd(10)}</Text>
-          <Text color={colors.yellow}> {String(item.cpu.toFixed(1)).padStart(5)}%</Text>
+          <Text color={cpuColor}> {String(item.cpu.toFixed(1)).padStart(5)}%</Text>
           <Text color={colors.blue}> {String(item.mem.toFixed(1)).padStart(5)}%</Text>
-          <Text color={colors.textMuted}> {truncate(item.command, w - 40)}</Text>
+          <Text color={colors.textMuted}> {truncate(item.command, Math.max(8, w - 40))}</Text>
         </Box>
       );
     }
@@ -625,11 +750,11 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       const isActive = item.activeState === "active";
       return (
         <Box key={item.name + i} width={w}>
-          <Text color={selected ? colors.purple : (isActive ? colors.green : colors.textMuted)}>{marker}</Text>
+          <Text color={selected ? colors.purpleBright : (isActive ? colors.green : colors.textMuted)}>{marker}</Text>
           <Text color={fg} bold={selected}>{truncate(item.name, 26).padEnd(26)}</Text>
-          <Text color={isActive ? colors.green : colors.textMuted}> {truncate(item.activeState, 10).padEnd(10)}</Text>
-          <Text color={colors.textDim}> {truncate(item.subState, 10)}</Text>
-          <Text color={colors.textMuted}> {truncate(item.description, w - 55)}</Text>
+          <Text color={isActive ? colors.green : colors.textMuted} bold={isActive}> {truncate(item.activeState, 10).padEnd(10)}</Text>
+          <Text color={colors.textDim}> {truncate(item.subState, 10).padEnd(10)}</Text>
+          <Text color={colors.textMuted}> {truncate(item.description, Math.max(8, w - 55))}</Text>
         </Box>
       );
     }
@@ -649,7 +774,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
           const line = `${active ? "▸" : " "} ${num}:${icon} ${truncate(label, 8).padEnd(8)} ${countStr.padStart(3)}`;
           return (
             <Box key={s} width={sidebarW} overflow="hidden">
-              <Text color={active ? colors.textBright : colors.textDim} bold={active} wrap="truncate">{line}</Text>
+              <Text color={active ? colors.purpleBright : colors.textDim} bold={active} wrap="truncate">{line}</Text>
             </Box>
           );
         })}
@@ -662,6 +787,7 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       { key: "↑/↓", label: "select" },
       { key: "tab", label: "switch" },
       { key: "1-9", label: "jump" },
+      { key: "^K", label: "palette" },
       { key: "esc", label: "back" },
     ];
     if (section === "containers") return [...base, { key: "start/stop/rm", label: "actions" }, { key: "stats/logs", label: "inspect" }];
@@ -679,12 +805,12 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
     <Box flexDirection="column" width={termWidth} height={termHeight - 4} overflow="hidden" paddingX={margin}>
       {/* Header */}
       <Box marginBottom={1} height={1} flexDirection="row" justifyContent="space-between">
-        <Box flexDirection="row">
-          <Breadcrumb items={["Home", "Discovery"]} />
-          {scanning && <Text color={colors.yellow}> scanning...</Text>}
-          {filter && <Text color={colors.cyan}> · filter:{filter}</Text>}
-          {autoRefresh && <Text color={colors.green}> ⟳auto</Text>}
-          {actionMsg && <Text color={colors.textDim}> · {actionMsg}</Text>}
+        <Box flexDirection="row" gap={1}>
+          <Breadcrumb items={["Home", "Discovery", SECTION_LABELS[section]]} />
+          {scanning && <Spinner label="scanning" color={colors.yellow} />}
+          {filter && <Text color={colors.cyan}>· filter:{filter}</Text>}
+          {autoRefresh && <Text color={colors.green}>· ⟳ auto 5s</Text>}
+          {actionMsg && <Text color={actionMsg.startsWith("✓") ? colors.green : actionMsg.startsWith("✗") ? colors.red : colors.textDim}>· {actionMsg}</Text>}
         </Box>
       </Box>
 
@@ -696,7 +822,14 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
         </StyledBox>
 
         {/* Main panel */}
-        <StyledBox title={mainTitle} focused height={availH} overflow="hidden" padding={1}>
+        <StyledBox
+          title={mainTitle}
+          rightTitle={filter ? `filtered: ${filter}` : undefined}
+          focused
+          height={availH}
+          overflow="hidden"
+          padding={1}
+        >
           {renderMainPanel()}
         </StyledBox>
       </Box>
@@ -705,8 +838,11 @@ export function DiscoverScreen({ probe, scanning, onCommand, onRefresh }: Discov
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
-          placeholder="filter <text> · start · stop · rm · stats · exec <cmd> · kill · svc-start · prune · auto · 1-9 · back"
-          focused={true}
+          onChange={setInputText}
+          completions={DISCOVER_COMPLETIONS}
+          history={cmdHistory}
+          placeholder="filter <text> · start · stop · rm · stats · exec <cmd> · kill · svc-start · prune · auto · back"
+          focused={focused}
         />
       </Box>
       <Box marginTop={1}>

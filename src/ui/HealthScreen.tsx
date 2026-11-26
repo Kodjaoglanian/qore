@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Box, Text, useInput } from "ink";
-import { colors } from "./theme.js";
+import { colors, latencyColor } from "./theme.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { StyledBox } from "./components/Box.js";
 import { InputBar } from "./components/InputBar.js";
 import { ShortcutBar } from "./components/ShortcutBar.js";
 import { Breadcrumb } from "./components/Breadcrumb.js";
+import { MeterBar } from "./components/ProgressBar.js";
+import { Spinner } from "./components/Spinner.js";
 import type { Vault } from "../core/vault/vault.js";
 import type { ConnectionConfig } from "../core/vault/types.js";
 import { CONNECTION_ICONS, CONNECTION_LABELS } from "../core/vault/types.js";
@@ -13,7 +15,6 @@ import { getManager, type QuickStatus } from "../core/connections/manager.js";
 import {
   addHealthCheck,
   getHealthHistory,
-  getAllHealthHistory,
   getHealthConfig,
   setHealthConfig,
   clearHealthHistory,
@@ -25,6 +26,8 @@ interface HealthScreenProps {
   vault: Vault;
   onConnect: (conn: ConnectionConfig) => void;
   onBack: () => void;
+  onOpenDashboard?: () => void;
+  focused?: boolean;
 }
 
 interface HealthEntry {
@@ -34,7 +37,15 @@ interface HealthEntry {
   loading: boolean;
 }
 
-export function HealthScreen({ vault, onConnect, onBack }: HealthScreenProps) {
+const HEALTH_COMPLETIONS = ["refresh", "check", "monitor", "interval ", "clear", "connect ", "dashboard", "back", "quit"];
+
+export function HealthScreen({
+  vault,
+  onConnect,
+  onBack,
+  onOpenDashboard,
+  focused = true,
+}: HealthScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalSize();
   const margin = Math.max(1, Math.floor(termWidth * 0.03));
   const availH = Math.max(6, termHeight - 8);
@@ -44,6 +55,7 @@ export function HealthScreen({ vault, onConnect, onBack }: HealthScreenProps) {
   const [status, setStatus] = useState<string | null>(null);
   const [monitoring, setMonitoring] = useState(false);
   const [config, setConfig] = useState(getHealthConfig());
+  const [cmdHistory, setCmdHistory] = useState<string[]>([]);
   const monitorTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const runChecks = useCallback(async () => {
@@ -65,7 +77,7 @@ export function HealthScreen({ vault, onConnect, onBack }: HealthScreenProps) {
       loading: true,
     })));
 
-    const results = await Promise.allSettled(
+    await Promise.allSettled(
       conns.map(async (conn) => {
         const manager = getManager(conn.type);
         const start = Date.now();
@@ -79,7 +91,7 @@ export function HealthScreen({ vault, onConnect, onBack }: HealthScreenProps) {
             latency: 0,
             message: "No manager",
           });
-          return { connId: conn.id, online: false, latency: 0, message: "No manager" };
+          return;
         }
         try {
           let qs: QuickStatus;
@@ -99,7 +111,6 @@ export function HealthScreen({ vault, onConnect, onBack }: HealthScreenProps) {
             latency: qs.latency ?? latency,
             message: qs.info,
           });
-          return { connId: conn.id, online: qs.online, latency: qs.latency ?? latency, message: qs.info };
         } catch (err) {
           const latency = Date.now() - start;
           addHealthCheck({
@@ -111,13 +122,11 @@ export function HealthScreen({ vault, onConnect, onBack }: HealthScreenProps) {
             latency,
             message: (err as Error).message,
           });
-          return { connId: conn.id, online: false, latency, message: (err as Error).message };
         }
       }),
     );
 
-    const newEntries = conns.map((conn, i) => {
-      const result = results[i];
+    const newEntries = conns.map((conn) => {
       const history = getHealthHistory(conn.id);
       return {
         conn,
@@ -143,34 +152,38 @@ export function HealthScreen({ vault, onConnect, onBack }: HealthScreenProps) {
     };
   }, [monitoring, config.intervalSec, runChecks]);
 
-  useInput((input, key) => {
-    if (key.escape) {
-      onBack();
-      return;
-    }
-    if (key.upArrow) {
-      setSelectedIdx((i) => Math.max(0, i - 1));
-    }
-    if (key.downArrow) {
-      setSelectedIdx((i) => Math.min(entries.length - 1, i + 1));
-    }
-  });
+  useInput(
+    (_input, key) => {
+      if (key.escape) {
+        onBack();
+        return;
+      }
+      if (key.upArrow) {
+        setSelectedIdx((i) => Math.max(0, i - 1));
+      }
+      if (key.downArrow) {
+        setSelectedIdx((i) => Math.min(Math.max(0, entries.length - 1), i + 1));
+      }
+    },
+    { isActive: focused }
+  );
 
   const handleSubmit = useCallback((value: string) => {
-    const trimmed = value.trim().toLowerCase();
-    const parts = trimmed.split(/\s+/);
+    const trimmed = value.trim();
+    if (trimmed) setCmdHistory((prev) => [...prev.slice(-49), trimmed]);
+    const lower = trimmed.toLowerCase();
+    const parts = lower.split(/\s+/);
     const command = parts[0];
 
     if (command === "refresh" || command === "check") {
       setStatus("Running health checks...");
-      runChecks();
-      setStatus("[ok] Health checks completed");
+      runChecks().then(() => setStatus("[ok] Health checks completed"));
       return;
     }
 
     if (command === "monitor") {
       setMonitoring((prev) => {
-        setStatus(`Monitoring ${!prev ? "started" : "stopped"} (interval: ${config.intervalSec}s)`);
+        setStatus(`[ok] Monitoring ${!prev ? "started" : "stopped"} (interval: ${config.intervalSec}s)`);
         return !prev;
       });
       return;
@@ -195,6 +208,11 @@ export function HealthScreen({ vault, onConnect, onBack }: HealthScreenProps) {
       return;
     }
 
+    if (command === "dashboard" && onOpenDashboard) {
+      onOpenDashboard();
+      return;
+    }
+
     if (command === "connect") {
       const idx = parseInt(parts[1], 10) - 1;
       if (isNaN(idx) || idx < 0 || idx >= entries.length) {
@@ -214,33 +232,40 @@ export function HealthScreen({ vault, onConnect, onBack }: HealthScreenProps) {
       onConnect(entries[selectedIdx].conn);
       return;
     }
-  }, [entries, selectedIdx, onConnect, onBack, runChecks, config.intervalSec]);
+  }, [entries, selectedIdx, onConnect, onBack, onOpenDashboard, runChecks, config.intervalSec]);
 
   const onlineCount = entries.filter((e) => e.latest?.online).length;
   const offlineCount = entries.filter((e) => e.latest && !e.latest.online).length;
   const loadingCount = entries.filter((e) => e.loading).length;
-  const avgLatency = entries.filter((e) => e.latest?.online && e.latest.latency).reduce((sum, e) => sum + (e.latest?.latency ?? 0), 0) / (onlineCount || 1);
+  const onlineLatencies = entries.filter((e) => e.latest?.online && e.latest.latency).map((e) => e.latest!.latency);
+  const avgLatency = onlineLatencies.length > 0
+    ? Math.round(onlineLatencies.reduce((a, b) => a + b, 0) / onlineLatencies.length)
+    : 0;
 
   return (
     <Box flexDirection="column" width={termWidth} height={termHeight - 4} paddingX={margin} overflow="hidden">
       <Box marginBottom={1} height={1}>
-        <Breadcrumb items={["Home", "Health Check"]} />
+        <Breadcrumb items={["Home", "Health Monitor"]} />
       </Box>
 
       <Box flexDirection="column" height={availH} overflow="hidden">
-        <StyledBox title="Health Check Dashboard" focused padding={1} height={availH} overflow="hidden">
+        <StyledBox
+          title="Health Check & Sparkline Monitor"
+          rightTitle={`monitor: ${monitoring ? "ON" : "OFF"} · interval: ${config.intervalSec}s`}
+          focused
+          padding={1}
+          height={availH}
+          overflow="hidden"
+        >
           <Box flexDirection="column">
             <Box marginBottom={1} flexDirection="row" justifyContent="space-between">
-              <Box flexDirection="row">
-                <Text color={colors.green} bold>{"  ● "}{onlineCount}{" online"}</Text>
-                {offlineCount > 0 && <Text color={colors.red} bold>{"  ● "}{offlineCount}{" offline"}</Text>}
-                {loadingCount > 0 && <Text color={colors.yellow}>{"  ● "}{loadingCount}{" checking..."}</Text>}
-                {onlineCount > 0 && <Text color={colors.textMuted}>{"  avg "}{Math.round(avgLatency)}{"ms"}</Text>}
-              </Box>
-              <Box flexDirection="row">
-                <Text color={colors.textMuted}>
-                  {"monitor: "}{monitoring ? "ON" : "OFF"}{" · interval: "}{config.intervalSec}{"s"}
-                </Text>
+              <Box flexDirection="row" gap={2}>
+                <Text color={colors.green} bold>● {onlineCount} online</Text>
+                {offlineCount > 0 && <Text color={colors.red} bold>● {offlineCount} offline</Text>}
+                {loadingCount > 0 && <Spinner label={`${loadingCount} probing`} color={colors.yellow} />}
+                {onlineCount > 0 && (
+                  <Text color={latencyColor(avgLatency)}>avg {avgLatency}ms</Text>
+                )}
               </Box>
             </Box>
 
@@ -261,39 +286,47 @@ export function HealthScreen({ vault, onConnect, onBack }: HealthScreenProps) {
 
                   const latencies = entry.history.filter((h) => h.online).map((h) => h.latency);
                   const sparkline = renderSparkline(latencies);
+                  const minLat = latencies.length > 0 ? Math.min(...latencies) : 0;
+                  const maxLat = latencies.length > 0 ? Math.max(...latencies) : 0;
 
                   const uptimeCount = entry.history.filter((h) => h.online).length;
                   const uptimePct = entry.history.length > 0 ? Math.round((uptimeCount / entry.history.length) * 100) : 0;
+                  const upColor = uptimePct >= 90 ? colors.green : uptimePct >= 50 ? colors.yellow : colors.red;
 
                   return (
-                    <Box key={entry.conn.id} flexDirection="column">
+                    <Box key={entry.conn.id} flexDirection="column" marginBottom={0}>
                       <Box flexDirection="row">
-                        <Text color={isSelected ? colors.purple : colors.textDim}>
-                          {isSelected ? ">" : " "}{" "}
+                        <Text color={isSelected ? colors.purpleBright : colors.textDim} bold={isSelected}>
+                          {isSelected ? "▸ " : "  "}
                         </Text>
                         <Text color={dotColor} bold>{dot}</Text>
-                        <Text color={colors.textDim}>{" "}{i + 1}{"."}</Text>
-                        <Text color={isSelected ? colors.textBright : colors.text}>
-                          {" "}{CONNECTION_ICONS[entry.conn.type]} {entry.conn.name}
+                        <Text color={colors.textDim}> {i + 1}.</Text>
+                        <Text color={isSelected ? colors.textBright : colors.text} bold={isSelected}>
+                          {" "}{CONNECTION_ICONS[entry.conn.type]} {entry.conn.name.padEnd(16)}
                         </Text>
                         <Text color={isSelected ? colors.purpleBright : colors.textMuted}>
-                          {"  "}{CONNECTION_LABELS[entry.conn.type]} · {entry.conn.host}:{entry.conn.port}
+                          {" "}{CONNECTION_LABELS[entry.conn.type]} · {entry.conn.host}:{entry.conn.port}
                         </Text>
                         {latest && (
-                          <Text color={latest.online ? colors.green : colors.red}>
+                          <Text color={latest.online ? latencyColor(latest.latency) : colors.red}>
                             {"  "}{latest.message}{latest.latency ? ` (${latest.latency}ms)` : ""}
                           </Text>
                         )}
                       </Box>
-                      {sparkline && (
-                        <Box flexDirection="row">
-                          <Text color={colors.textMuted}>{"      spark: "}</Text>
-                          <Text color={colors.cyan}>{sparkline}</Text>
-                          <Text color={colors.textMuted}>{"  uptime: "}</Text>
-                          <Text color={uptimePct >= 90 ? colors.green : uptimePct >= 50 ? colors.yellow : colors.red}>
-                            {uptimePct}{"%"}
-                          </Text>
-                          <Text color={colors.textMuted}>{"  ("}{entry.history.length}{" checks)"}</Text>
+                      {entry.history.length > 0 && (
+                        <Box flexDirection="row" paddingLeft={6} gap={2}>
+                          {sparkline && (
+                            <Text color={colors.cyan}>
+                              {sparkline} <Text color={colors.textMuted}>({minLat}-{maxLat}ms)</Text>
+                            </Text>
+                          )}
+                          <MeterBar
+                            label="up"
+                            percent={uptimePct}
+                            width={8}
+                            color={upColor}
+                            detail={`(${entry.history.length} checks)`}
+                          />
                         </Box>
                       )}
                     </Box>
@@ -316,15 +349,20 @@ export function HealthScreen({ vault, onConnect, onBack }: HealthScreenProps) {
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
-          placeholder="refresh · monitor · interval <s> · clear · connect <n> · back"
+          completions={HEALTH_COMPLETIONS}
+          history={cmdHistory}
+          focused={focused}
+          placeholder="refresh · monitor · interval <s> · clear · connect <n> · dashboard · back"
         />
       </Box>
 
       <Box marginTop={1}>
         <ShortcutBar
           shortcuts={[
-            { key: "Up/Dn", label: "select" },
+            { key: "↑/↓", label: "select" },
             { key: "Enter", label: "connect" },
+            { key: "monitor", label: "toggle" },
+            { key: "^K", label: "palette" },
             { key: "esc", label: "back" },
           ]}
         />

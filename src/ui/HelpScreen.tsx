@@ -19,21 +19,39 @@ interface HelpSection {
 
 interface HelpScreenProps {
   onCommand: (cmd: string) => void;
+  focused?: boolean;
 }
 
 function sectionHeight(s: HelpSection): number {
   return 4 + s.rows.length;
 }
 
-export function HelpScreen({ onCommand }: HelpScreenProps) {
+export function HelpScreen({ onCommand, focused = true }: HelpScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalSize();
   const margin = Math.max(1, Math.floor(termWidth * 0.05));
   const twoColumn = termWidth > 120;
   const [sectionOffset, setSectionOffset] = useState(0);
+  const [search, setSearch] = useState("");
 
-  const sections = useMemo(() => createSections(), []);
+  const allSections = useMemo(() => createSections(), []);
 
-  const overhead = 4;
+  const sections = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allSections;
+    return allSections
+      .map((s) => ({
+        ...s,
+        rows: s.rows.filter(
+          (r) =>
+            r.cmd.toLowerCase().includes(q) ||
+            r.desc.toLowerCase().includes(q) ||
+            s.title.toLowerCase().includes(q)
+        ),
+      }))
+      .filter((s) => s.rows.length > 0);
+  }, [allSections, search]);
+
+  const overhead = 6;
   const availHeight = Math.max(8, termHeight - 4 - overhead);
 
   const maxOffset = useMemo(() => {
@@ -56,7 +74,7 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
 
   const visibleSections = useMemo(() => {
     const step = twoColumn ? 2 : 1;
-    let start = sectionOffset;
+    let start = Math.min(sectionOffset, maxOffset);
     if (twoColumn && start % 2 !== 0) start = Math.max(0, start - 1);
     const result: HelpSection[] = [];
     let used = 0;
@@ -69,28 +87,52 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
       for (let j = i; j < end; j++) result.push(sections[j]);
     }
     return result;
-  }, [sections, sectionOffset, availHeight, twoColumn]);
+  }, [sections, sectionOffset, maxOffset, availHeight, twoColumn]);
 
   const alignedOffset = twoColumn && sectionOffset % 2 !== 0 ? Math.max(0, sectionOffset - 1) : sectionOffset;
 
-  useInput((input, key) => {
-    if (key.escape || input === "q") {
-      onCommand("back");
-      return;
-    }
-    const step = twoColumn ? 2 : 1;
-    if (key.upArrow || key.pageUp) {
-      const amount = key.pageUp ? Math.max(step, Math.floor(availHeight / 8) * step) : step;
-      setSectionOffset((o) => Math.max(0, o - amount));
-    }
-    if (key.downArrow || key.pageDown) {
-      const amount = key.pageDown ? Math.max(step, Math.floor(availHeight / 8) * step) : step;
-      setSectionOffset((o) => Math.min(maxOffset, o + amount));
-    }
-    const k = key as { home?: boolean; end?: boolean };
-    if (k.home) setSectionOffset(0);
-    if (k.end) setSectionOffset(maxOffset);
-  });
+  useInput(
+    (input, key) => {
+      if (key.escape) {
+        if (search) {
+          setSearch("");
+          setSectionOffset(0);
+        } else {
+          onCommand("back");
+        }
+        return;
+      }
+      const step = twoColumn ? 2 : 1;
+      if (key.upArrow || key.pageUp) {
+        const amount = key.pageUp ? Math.max(step, Math.floor(availHeight / 8) * step) : step;
+        setSectionOffset((o) => Math.max(0, o - amount));
+        return;
+      }
+      if (key.downArrow || key.pageDown) {
+        const amount = key.pageDown ? Math.max(step, Math.floor(availHeight / 8) * step) : step;
+        setSectionOffset((o) => Math.min(maxOffset, o + amount));
+        return;
+      }
+      const k = key as { home?: boolean; end?: boolean };
+      if (k.home) { setSectionOffset(0); return; }
+      if (k.end) { setSectionOffset(maxOffset); return; }
+      if (key.backspace || key.delete) {
+        setSearch((s) => s.slice(0, -1));
+        setSectionOffset(0);
+        return;
+      }
+      if (key.ctrl && input === "u") {
+        setSearch("");
+        setSectionOffset(0);
+        return;
+      }
+      if (input && !key.ctrl && !key.meta && !key.tab && !key.return) {
+        setSearch((s) => s + input);
+        setSectionOffset(0);
+      }
+    },
+    { isActive: focused }
+  );
 
   const visibleCount = twoColumn ? Math.ceil(visibleSections.length / 2) : visibleSections.length;
   const totalCount = twoColumn ? Math.ceil(sections.length / 2) : sections.length;
@@ -98,19 +140,37 @@ export function HelpScreen({ onCommand }: HelpScreenProps) {
 
   return (
     <Box flexDirection="column" width={termWidth} height={termHeight - 4} overflow="hidden" paddingX={margin}>
-      <Box marginBottom={1} height={1}>
+      <Box marginBottom={1} height={1} justifyContent="space-between">
         <Breadcrumb items={["Home", "Help"]} />
+        <Text color={colors.textDim}>
+          ⌕{" "}
+          {search ? (
+            <Text color={colors.cyan} bold>{search}▎</Text>
+          ) : (
+            <Text color={colors.textMuted}>type to filter commands...</Text>
+          )}
+        </Text>
       </Box>
 
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
-        {twoColumn ? renderTwoColumn(visibleSections) : renderOneColumn(visibleSections)}
+        {visibleSections.length === 0 ? (
+          <Text color={colors.textMuted}>  No commands match "{search}". Press Esc to clear.</Text>
+        ) : twoColumn ? (
+          renderTwoColumn(visibleSections)
+        ) : (
+          renderOneColumn(visibleSections)
+        )}
       </Box>
 
       <Box marginTop={1} width="100%" justifyContent="space-between">
         <Box>
-          <Text color={colors.textMuted}>Press </Text>
+          <Text color={colors.textMuted}>Type to filter · </Text>
+          <Text color={colors.purple} bold>↑/↓</Text>
+          <Text color={colors.textMuted}> scroll · </Text>
+          <Text color={colors.purple} bold>^K</Text>
+          <Text color={colors.textMuted}> palette · </Text>
           <Text color={colors.purple} bold>esc</Text>
-          <Text color={colors.textMuted}> to go back</Text>
+          <Text color={colors.textMuted}> {search ? "clear" : "back"}</Text>
         </Box>
         <ScrollIndicator offset={scrollPos} total={totalCount} visible={visibleCount} />
       </Box>
@@ -183,20 +243,26 @@ function Row({ cmd, desc, color, compact }: { cmd: string; desc: string; color: 
 function createSections(): HelpSection[] {
   return [
     {
-      title: "Commands",
+      title: "Global Commands",
       color: colors.purple,
       rows: [
-        { cmd: "discover (containers)", desc: "scan ports, Docker & daemons" },
-        { cmd: "connections (conn, vault)", desc: "manage saved connections & vault" },
-        { cmd: "dashboard (dash)", desc: "multi-service status & health checks" },
-        { cmd: "wiki (docs, book)", desc: "Qore documentation book from GitHub Wiki" },
-        { cmd: "help", desc: "show this help screen" },
+        { cmd: "Ctrl+K", desc: "open fuzzy Command Palette from any screen" },
+        { cmd: "discover (containers)", desc: "scan ports, Docker, processes, services & network" },
+        { cmd: "connections (conn, vault)", desc: "manage saved connections & encrypted vault" },
+        { cmd: "dashboard (dash)", desc: "multi-service live status overview" },
+        { cmd: "health", desc: "periodic health monitor with sparklines & uptime %" },
+        { cmd: "storage", desc: "manage Local Emulated S3 & AWS S3 buckets/files" },
+        { cmd: "providers", desc: "switch storage & Pub/Sub messaging providers" },
+        { cmd: "theme [name]", desc: "switch or cycle TrueColor theme (torlink/cyber/emerald/amber/rose)" },
+        { cmd: "lock", desc: "lock vault & zero encryption key in memory" },
+        { cmd: "wiki (docs, book)", desc: "Qore documentation book" },
+        { cmd: "help", desc: "show this searchable help screen" },
         { cmd: "back (home)", desc: "go back to previous screen" },
         { cmd: "quit (exit)", desc: "exit Qore" },
       ],
     },
     {
-      title: "Connections",
+      title: "Connections & Vault",
       color: colors.purple,
       rows: [
         { cmd: "add", desc: "add a new connection" },
@@ -204,244 +270,62 @@ function createSections(): HelpSection[] {
         { cmd: "test <n>", desc: "test connection #n" },
         { cmd: "edit <n>", desc: "edit connection #n" },
         { cmd: "rm <n>", desc: "remove connection #n" },
-        { cmd: "refresh", desc: "reload connection list" },
-        { cmd: "groups", desc: "view & manage connection groups" },
-        { cmd: "group <name>", desc: "create a new group" },
-        { cmd: "group-add <name>", desc: "add selected conn to group" },
-        { cmd: "group-rm <name>", desc: "remove a group" },
-        { cmd: "group-open <name>", desc: "open all conns in group" },
-        { cmd: "snippet <name>", desc: "create a command snippet" },
-        { cmd: "snippets", desc: "list saved snippets" },
-        { cmd: "run <name>", desc: "execute a saved snippet" },
-        { cmd: "snippet-rm <name>", desc: "remove a snippet" },
-      ],
-    },
-    {
-      title: "Vault",
-      color: colors.purpleDim,
-      rows: [
+        { cmd: "groups / group <n>", desc: "organize & batch-open connection groups" },
+        { cmd: "snippet / run <n>", desc: "record & replay command sequences" },
         { cmd: "changepw", desc: "change vault master password" },
-        { cmd: "export", desc: "export connections as encrypted bundle" },
-        { cmd: "import", desc: "import connections from encrypted bundle" },
+        { cmd: "export / import", desc: "encrypted connection bundles" },
       ],
     },
     {
-      title: "Favorites & Snippets",
-      color: colors.yellow,
-      rows: [
-        { cmd: "star <cmd>", desc: "save command to favorites" },
-        { cmd: "unstar <cmd>", desc: "remove command from favorites" },
-        { cmd: "favorites", desc: "list starred commands" },
-        { cmd: "snippet <name>", desc: "record a multi-command snippet" },
-        { cmd: "snippets", desc: "list saved snippets" },
-        { cmd: "run <name>", desc: "execute a saved snippet" },
-        { cmd: "snippet-rm <name>", desc: "delete a snippet" },
-      ],
-    },
-    {
-      title: "Docker Actions",
+      title: "Docker & Discovery",
       color: colors.cyan,
       rows: [
-        { cmd: "start", desc: "start selected container" },
-        { cmd: "stop", desc: "stop selected container" },
-        { cmd: "restart", desc: "restart selected container" },
-        { cmd: "rm", desc: "remove selected container" },
-        { cmd: "logs", desc: "view container logs" },
-        { cmd: "inspect", desc: "inspect container details" },
-        { cmd: "prune", desc: "remove stopped containers" },
-        { cmd: "refresh", desc: "re-scan all resources" },
+        { cmd: "start / stop / restart", desc: "control selected container" },
+        { cmd: "rm / prune", desc: "remove container or prune stopped containers" },
+        { cmd: "logs / inspect / stats", desc: "inspect container logs, details & live metrics" },
+        { cmd: "exec <cmd>", desc: "run command inside selected container" },
+        { cmd: "filter <text>", desc: "filter active section rows" },
+        { cmd: "kill / kill-9", desc: "terminate selected process" },
+        { cmd: "svc-start / svc-stop", desc: "control systemd service" },
+        { cmd: "auto / refresh", desc: "toggle 5s auto-refresh or re-scan now" },
       ],
     },
     {
-      title: "Redis",
+      title: "Storage & Providers",
       color: colors.blue,
       rows: [
-        { cmd: "get <key>", desc: "get value for key" },
-        { cmd: "set <k> <v>", desc: "set key to value" },
-        { cmd: "del <key>", desc: "delete a key" },
-        { cmd: "keys <pattern>", desc: "list keys matching pattern" },
-        { cmd: "flushdb", desc: "clear current database" },
-        { cmd: "info", desc: "show Redis server info" },
+        { cmd: "create <bucket>", desc: "create a bucket in active S3 provider" },
+        { cmd: "delete <bucket>", desc: "delete a bucket" },
+        { cmd: "open <bucket>", desc: "browse objects inside bucket" },
+        { cmd: "upload <path> [key]", desc: "upload local file to open bucket" },
+        { cmd: "rm <key>", desc: "delete object from open bucket" },
+        { cmd: "use local | aws", desc: "switch both storage & messaging providers" },
+        { cmd: "publish <topic> <msg>", desc: "publish event to Pub/Sub topic" },
       ],
     },
     {
-      title: "S3",
-      color: colors.blue,
-      rows: [
-        { cmd: "ls <bucket>", desc: "list objects in bucket" },
-        { cmd: "mkbucket <name>", desc: "create a new bucket" },
-        { cmd: "rmbucket <name>", desc: "delete a bucket" },
-        { cmd: "upload <local> <bk/key>", desc: "upload file to bucket" },
-        { cmd: "download <bk/key> <local>", desc: "download file from bucket" },
-        { cmd: "rm <bucket> <key>", desc: "delete an object" },
-        { cmd: "presign <bucket> <key>", desc: "generate pre-signed URL" },
-        { cmd: "info", desc: "show S3 connection info" },
-      ],
-    },
-    {
-      title: "HTTP",
-      color: colors.cyan,
-      rows: [
-        { cmd: "get <path>", desc: "send GET request" },
-        { cmd: "post <path> [body]", desc: "send POST request with body" },
-        { cmd: "put <path> [body]", desc: "send PUT request with body" },
-        { cmd: "patch <path> [body]", desc: "send PATCH request with body" },
-        { cmd: "delete <path>", desc: "send DELETE request" },
-        { cmd: "info", desc: "show HTTP connection info" },
-        { cmd: "logs", desc: "view request logs" },
-      ],
-    },
-    {
-      title: "Database (Postgres / MySQL / Mongo)",
+      title: "Services (Redis / DB / S3 / HTTP / Git / SSH / VMware)",
       color: colors.green,
       rows: [
-        { cmd: "tables <db>", desc: "list tables/collections" },
-        { cmd: "desc <db> <table>", desc: "describe table structure" },
-        { cmd: "count <db> <table>", desc: "count rows in table" },
-        { cmd: "sample <db> <t> [n]", desc: "show sample rows (default 10)" },
-        { cmd: "size <db>", desc: "table sizes in database" },
-        { cmd: "indexes <db> <table>", desc: "list indexes" },
-        { cmd: "views <db>", desc: "list views" },
-        { cmd: "funcs <db>", desc: "list functions" },
-        { cmd: "conns", desc: "active connections" },
-        { cmd: "queries", desc: "running queries" },
-        { cmd: "query <db> <sql>", desc: "run custom SQL query" },
-        { cmd: "export <db> <table>", desc: "export table to CSV" },
-        { cmd: "explain <db> <sql>", desc: "show query execution plan" },
-        { cmd: "slow-queries", desc: "list slow running queries" },
-        { cmd: "logs", desc: "view database logs" },
+        { cmd: "Redis: get/set/del/keys", desc: "key-value inspection & server info" },
+        { cmd: "DB: tables/desc/query", desc: "SQL queries, EXPLAIN, CSV export, slow-queries" },
+        { cmd: "S3: ls/upload/presign", desc: "bucket & object ops with SigV4 presigned URLs" },
+        { cmd: "HTTP: get/post/put/del", desc: "REST client with request history" },
+        { cmd: "Git: status/diff/log", desc: "branches, stage, commit, merge, rebase, blame" },
+        { cmd: "SSH: shell/exec/sftp", desc: "interactive PTY bash, Docker, UFW, snapshots, audit" },
+        { cmd: "VMware: vms/power-on", desc: "vSphere VMs, hosts, datastores, snapshots, alarms" },
       ],
     },
     {
-      title: "Git",
+      title: "Tabs & Navigation",
       color: colors.yellow,
       rows: [
-        { cmd: "status", desc: "show staged, unstaged, untracked files" },
-        { cmd: "diff [--staged]", desc: "show working tree or staged diff" },
-        { cmd: "log (graph)", desc: "commit graph with branch tree" },
-        { cmd: "branches", desc: "list all branches with details" },
-        { cmd: "checkout <b>", desc: "switch to branch" },
-        { cmd: "branch <n>", desc: "create and switch to new branch" },
-        { cmd: "branch -d <n>", desc: "delete a branch" },
-        { cmd: "stage (add) [f]", desc: "stage files or all changes" },
-        { cmd: "unstage (reset) [f]", desc: "unstage files" },
-        { cmd: "commit <msg>", desc: "create a commit" },
-        { cmd: "amend [msg]", desc: "amend last commit" },
-        { cmd: "merge <b>", desc: "merge branch into current" },
-        { cmd: "rebase <b>", desc: "rebase onto branch" },
-        { cmd: "fetch [remote]", desc: "fetch from remote" },
-        { cmd: "pull [r] [b]", desc: "pull from remote" },
-        { cmd: "push [r] [b]", desc: "push to remote" },
-        { cmd: "cherry-pick <h>", desc: "cherry-pick a commit" },
-        { cmd: "revert <h>", desc: "revert a commit" },
-        { cmd: "blame <f>", desc: "show blame for file" },
-        { cmd: "tags", desc: "list tags" },
-        { cmd: "tag <n> [msg]", desc: "create a tag" },
-        { cmd: "remotes", desc: "list remotes" },
-        { cmd: "remote-add <n> <url>", desc: "add a remote" },
-        { cmd: "exec <args>", desc: "run raw git command" },
-      ],
-    },
-    {
-      title: "SSH",
-      color: colors.cyan,
-      rows: [
-        { cmd: "shell", desc: "open interactive bash terminal" },
-        { cmd: "exec <cmd>", desc: "run command on remote server" },
-        { cmd: "sysinfo", desc: "show system information" },
-        { cmd: "disk", desc: "show disk usage (df -h)" },
-        { cmd: "mem", desc: "show memory usage (free)" },
-        { cmd: "procs", desc: "show running processes" },
-        { cmd: "net", desc: "show network connections" },
-        { cmd: "ports", desc: "list listening ports" },
-        { cmd: "firewall [status|allow|deny]", desc: "UFW firewall management" },
-        { cmd: "top", desc: "top processes by CPU" },
-        { cmd: "netstat", desc: "active network connections" },
-        { cmd: "tail <f> [-f]", desc: "view or follow file" },
-        { cmd: "edit <f>", desc: "edit file in nano/vim" },
-        { cmd: "ls [path]", desc: "list directory contents" },
-        { cmd: "cat <file>", desc: "view file contents" },
-        { cmd: "find <p> [path]", desc: "search for files" },
-        { cmd: "du [path]", desc: "directory disk usage" },
-        { cmd: "services", desc: "list running services" },
-        { cmd: "svc <a> <n>", desc: "service control (start/stop/restart)" },
-        { cmd: "users", desc: "show logged-in users" },
-        { cmd: "cron", desc: "show crontab" },
-        { cmd: "env", desc: "show environment variables" },
-        { cmd: "pkgs [search]", desc: "list or search packages" },
-        { cmd: "kill <pid> [sig]", desc: "kill a process" },
-        { cmd: "ping <host>", desc: "ping a host" },
-        { cmd: "upload <local> <remote>", desc: "SFTP upload file" },
-        { cmd: "download <remote> <local>", desc: "SFTP download file" },
-        { cmd: "deploy <script>", desc: "run deploy script" },
-        { cmd: "git-status", desc: "find git repos and show status" },
-        { cmd: "compose <action>", desc: "Docker Compose management" },
-        { cmd: "docker <cmd>", desc: "Docker container management" },
-        { cmd: "security-audit", desc: "8-point security checklist" },
-        { cmd: "snapshot", desc: "capture server state snapshot" },
-        { cmd: "diff <s1> <s2>", desc: "compare two snapshots" },
-        { cmd: "snapshots", desc: "list saved snapshots" },
-        { cmd: "logs [service]", desc: "view system or docker logs" },
-        { cmd: "reboot / shutdown", desc: "restart or power off server" },
-      ],
-    },
-    {
-      title: "VMware vSphere",
-      color: colors.purpleDim,
-      rows: [
-        { cmd: "vms", desc: "list all virtual machines" },
-        { cmd: "hosts", desc: "list ESXi hosts" },
-        { cmd: "datastores", desc: "list datastores and capacity" },
-        { cmd: "networks", desc: "list virtual networks" },
-        { cmd: "info <vm>", desc: "show VM details (CPU, memory, OS, IP)" },
-        { cmd: "info-host <host>", desc: "show ESXi host details" },
-        { cmd: "power-on <vm>", desc: "power on a VM" },
-        { cmd: "power-off <vm>", desc: "power off a VM" },
-        { cmd: "reset <vm>", desc: "reset a VM" },
-        { cmd: "suspend <vm>", desc: "suspend a VM" },
-        { cmd: "snapshots <vm>", desc: "list snapshots for a VM" },
-        { cmd: "snapshot <vm> [name]", desc: "create a snapshot" },
-        { cmd: "revert <vm> <snap>", desc: "revert VM to snapshot" },
-        { cmd: "rmsnap <vm> <snap>", desc: "delete a snapshot" },
-        { cmd: "events", desc: "show vCenter events" },
-        { cmd: "alarms", desc: "show vCenter alarms" },
-        { cmd: "task <id>", desc: "check async task status" },
-        { cmd: "logs", desc: "view vCenter logs" },
-      ],
-    },
-    {
-      title: "Dashboard & Health",
-      color: colors.green,
-      rows: [
-        { cmd: "refresh", desc: "re-check all connections" },
-        { cmd: "auto", desc: "toggle auto-refresh (10s interval)" },
-        { cmd: "monitor <n>", desc: "toggle health monitoring for conn #n" },
-        { cmd: "interval <s>", desc: "set health check interval (5-3600s)" },
-        { cmd: "clear", desc: "clear health history" },
-        { cmd: "connect <n>", desc: "open connection #n from dashboard" },
-      ],
-    },
-    {
-      title: "Tab Management",
-      color: colors.textMuted,
-      rows: [
+        { cmd: "Ctrl+Tab / Ctrl+Arrows", desc: "switch between open service tabs" },
         { cmd: "close (disconnect)", desc: "close current tab & disconnect" },
-        { cmd: "new (new-session)", desc: "open duplicate session of same conn" },
-        { cmd: "back (home)", desc: "return to connections screen" },
-        { cmd: "Ctrl+Tab / Ctrl+Arrows", desc: "switch between open tabs" },
-      ],
-    },
-    {
-      title: "Navigation Keys",
-      color: colors.textMuted,
-      rows: [
-        { cmd: "↑/↓", desc: "select item / scroll sections" },
-        { cmd: "PgUp/PgDn", desc: "scroll one page" },
-        { cmd: "Home/End", desc: "jump to first/last section" },
-        { cmd: "Tab", desc: "autocomplete command" },
-        { cmd: "Enter", desc: "execute typed command" },
-        { cmd: "Esc", desc: "back / close overlay" },
-        { cmd: "^C", desc: "quit Qore" },
+        { cmd: "new (new-session)", desc: "open duplicate session of same connection" },
+        { cmd: "Tab", desc: "accept / cycle inline ghost autocomplete" },
+        { cmd: "↑/↓ / PgUp / PgDn", desc: "navigate items or command history" },
+        { cmd: "Esc / ^C", desc: "back / close overlay / quit Qore" },
       ],
     },
   ];
