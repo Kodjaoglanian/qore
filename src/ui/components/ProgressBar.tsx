@@ -54,11 +54,11 @@ export function MeterBar({ percent, width = 14, label, detail, color }: MeterBar
   const bar = renderMeterString(clamped, width);
 
   return (
-    <Box flexDirection="row">
-      {label && <Text color={colors.textDim}>{label} </Text>}
-      <Text color={barColor}>{bar}</Text>
-      <Text color={barColor} bold> {String(clamped).padStart(3)}%</Text>
-      {detail && <Text color={colors.textMuted}> {detail}</Text>}
+    <Box flexDirection="row" height={1} overflow="hidden">
+      {label && <Text color={colors.textDim} wrap="truncate">{label} </Text>}
+      <Text color={barColor} wrap="truncate">{bar}</Text>
+      <Text color={barColor} bold wrap="truncate"> {String(clamped).padStart(3)}%</Text>
+      {detail && <Text color={colors.textMuted} wrap="truncate"> {detail}</Text>}
     </Box>
   );
 }

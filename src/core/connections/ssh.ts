@@ -21,6 +21,8 @@ export interface PtyHandle {
   resize: (cols: number, rows: number) => void;
   close: () => Promise<SshResult>;
   cancel: () => void;
+  consumeBuffer?: () => string[];
+  getExitCode?: () => number | null;
 }
 
 function stripAnsi(str: string): string {
@@ -51,27 +53,31 @@ export class SshManager implements ConnectionManager {
 
   async getInfo(config: ConnectionConfig): Promise<Record<string, string>> {
     try {
-      const result = await this.exec(config, "uname -a");
+      const cmd = [
+        "echo __QORE_OS__; uname -a",
+        "echo __QORE_HOST__; hostname",
+        "echo __QORE_UP__; (uptime -p 2>/dev/null || uptime)",
+        "echo __QORE_DISK__; (df -h / 2>/dev/null | tail -1)",
+        "echo __QORE_MEM__; (free -h 2>/dev/null | grep -i '^Mem')",
+      ].join("; ");
+      const result = await this.exec(config, cmd);
       const info: Record<string, string> = {};
-      if (result.stdout.trim()) {
-        info["os"] = result.stdout.trim();
+      const sections: Record<string, string[]> = {};
+      let current = "";
+      for (const line of result.stdout.split("\n")) {
+        const t = line.trim();
+        if (t.startsWith("__QORE_") && t.endsWith("__")) {
+          current = t;
+          sections[current] = [];
+        } else if (current && t) {
+          sections[current].push(t);
+        }
       }
-      const hostResult = await this.exec(config, "hostname");
-      if (hostResult.stdout.trim()) {
-        info["hostname"] = hostResult.stdout.trim();
-      }
-      const uptimeResult = await this.exec(config, "uptime -p 2>/dev/null || uptime");
-      if (uptimeResult.stdout.trim()) {
-        info["uptime"] = uptimeResult.stdout.trim();
-      }
-      const diskResult = await this.exec(config, "df -h / 2>/dev/null | tail -1");
-      if (diskResult.stdout.trim()) {
-        info["disk"] = diskResult.stdout.trim();
-      }
-      const memResult = await this.exec(config, "free -h 2>/dev/null | grep Mem");
-      if (memResult.stdout.trim()) {
-        info["memory"] = memResult.stdout.trim();
-      }
+      if (sections.__QORE_OS__?.[0]) info["os"] = sections.__QORE_OS__[0];
+      if (sections.__QORE_HOST__?.[0]) info["hostname"] = sections.__QORE_HOST__[0];
+      if (sections.__QORE_UP__?.[0]) info["uptime"] = sections.__QORE_UP__[0];
+      if (sections.__QORE_DISK__?.[0]) info["disk"] = sections.__QORE_DISK__[0];
+      if (sections.__QORE_MEM__?.[0]) info["memory"] = sections.__QORE_MEM__[0];
       return info;
     } catch {
       return {};
@@ -264,6 +270,72 @@ export class SshManager implements ConnectionManager {
     });
   }
 
+  private wrapPtyStream(client: any, stream: any, onData: (data: string) => void): PtyHandle {
+    const initialChunks: string[] = [];
+    let bufferConsumed = false;
+    let exitCode: number | null = null;
+
+    stream.on("data", (data: Buffer) => {
+      const str = data.toString("utf8");
+      if (!bufferConsumed) {
+        initialChunks.push(str);
+        if (initialChunks.length > 500) initialChunks.shift();
+      }
+      onData(str);
+    });
+
+    stream.stderr?.on("data", (data: Buffer) => {
+      const str = data.toString("utf8");
+      if (!bufferConsumed) {
+        initialChunks.push(str);
+        if (initialChunks.length > 500) initialChunks.shift();
+      }
+      onData(str);
+    });
+
+    stream.on("close", (code: number) => {
+      exitCode = code ?? 0;
+      try { client.end(); } catch {}
+    });
+
+    const send = (input: string) => {
+      try { stream.write(input); } catch {}
+    };
+
+    const resize = (c: number, r: number) => {
+      try { stream.setWindow(r, c, 0, 0); } catch {}
+    };
+
+    const cancel = () => {
+      try { stream.close?.(); } catch {}
+      try { client.end(); } catch {}
+    };
+
+    const close = (): Promise<SshResult> => {
+      return new Promise((res) => {
+        if (exitCode !== null) {
+          res({ exitCode, stdout: "", stderr: "" });
+          return;
+        }
+        stream.on("close", (code: number) => {
+          try { client.end(); } catch {}
+          res({ exitCode: code ?? 0, stdout: "", stderr: "" });
+        });
+      });
+    };
+
+    const consumeBuffer = (): string[] => {
+      bufferConsumed = true;
+      const out = initialChunks.slice();
+      initialChunks.length = 0;
+      return out;
+    };
+
+    const getExitCode = () => exitCode;
+
+    return { stream, client, send, resize, close, cancel, consumeBuffer, getExitCode };
+  }
+
   async execPty(
     config: ConnectionConfig,
     command: string,
@@ -287,40 +359,13 @@ export class SshManager implements ConnectionManager {
           return;
         }
 
-        stream.on("data", (data: Buffer) => {
-          onData(data.toString());
-        });
+        const handle = this.wrapPtyStream(client, stream, onData);
 
         if (hasSudo && config.password) {
           stream.write(config.password + "\n");
         }
 
-        const send = (input: string) => {
-          try { stream.write(input); } catch {}
-        };
-
-        const resize = (c: number, r: number) => {
-          try { stream.setWindow(r, c, 0, 0); } catch {}
-        };
-
-        const cancel = () => {
-          try { client.end(); } catch {}
-        };
-
-        const close = (): Promise<SshResult> => {
-          return new Promise((res) => {
-            let stdout = "";
-            let stderr = "";
-            stream.on("data", (d: Buffer) => { stdout += d.toString(); });
-            stream.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
-            stream.on("close", (code: number) => {
-              client.end();
-              res({ exitCode: code ?? 0, stdout, stderr });
-            });
-          });
-        };
-
-        resolve({ stream, client, send, resize, close, cancel });
+        resolve(handle);
       });
     });
   }
@@ -331,7 +376,21 @@ export class SshManager implements ConnectionManager {
     rows: number,
     onData: (data: string) => void,
   ): Promise<PtyHandle> {
-    return this.execPty(config, "bash -l 2>/dev/null || sh -l", cols, rows, onData);
+    const client = await this.connectClient(config);
+
+    return new Promise<PtyHandle>((resolve, reject) => {
+      client.shell({ term: "xterm-256color", cols, rows }, (err: any, stream: any) => {
+        if (err) {
+          client.end();
+          // Fallback to execPty if native shell channel is disallowed
+          this.execPty(config, "bash -l 2>/dev/null || sh -l", cols, rows, onData)
+            .then(resolve)
+            .catch(reject);
+          return;
+        }
+        resolve(this.wrapPtyStream(client, stream, onData));
+      });
+    });
   }
 
   async uploadFile(config: ConnectionConfig, localPath: string, remotePath: string): Promise<void> {

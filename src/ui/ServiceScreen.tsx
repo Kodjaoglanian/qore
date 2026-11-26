@@ -77,11 +77,14 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, onPtyActive
   const [recentActivity, setRecentActivity] = useState<{ cmd: string; time: string }[]>([]);
 
   const isWide = termWidth >= 100;
+  const contentW = Math.max(30, termWidth - margin * 2);
   const availH = Math.max(8, effectiveHeight - HEADER - FOOTER);
   const listH = isWide ? availH : Math.floor(availH * 0.58);
   const infoH = isWide ? availH : Math.max(5, availH - listH - 1);
-  const leftW = isWide ? Math.floor(innerWidth * 0.62) : innerWidth;
-  const rightW = isWide ? Math.max(26, innerWidth - leftW - 1) : innerWidth;
+  const leftW = isWide ? Math.floor(contentW * 0.62) : contentW;
+  const rightW = isWide ? Math.max(26, contentW - leftW - 1) : contentW;
+  const leftInnerW = Math.max(20, leftW - 4);
+  const rightInnerW = Math.max(18, rightW - 4);
 
   const sshCategoryOverhead = conn.type === "ssh" ? 2 : 0;
   const maxItems = Math.max(1, listH - BOX_OVERHEAD - sshCategoryOverhead);
@@ -566,10 +569,11 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, onPtyActive
         setPtyTitle(`shell: ${conn.username || "root"}@${conn.host}`);
         setOverlay(null);
         setOverlayContent([]);
+        setStatus("Opening SSH shell...");
         try {
-          const termW = Math.max(20, (process.stdout.columns || 80) - 2);
-          const termH = Math.max(8, (process.stdout.rows || 24) - 6);
-          const pty = await ssh.openShell(conn, termW, termH, () => {});
+          const ptyCols = Math.max(20, contentW - 4);
+          const ptyRows = Math.max(4, effectiveHeight - 7);
+          const pty = await ssh.openShell(conn, ptyCols, ptyRows, () => {});
           setPtyHandle(pty);
         } catch (err) {
           setStatus(`[!] ${(err as Error).message}`);
@@ -586,9 +590,9 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, onPtyActive
         setOverlay(null);
         setOverlayContent([]);
         try {
-          const termW = Math.max(20, (process.stdout.columns || 80) - 2);
-          const termH = Math.max(8, (process.stdout.rows || 24) - 6);
-          const pty = await ssh.execPty(conn, cmd, termW, termH, () => {});
+          const ptyCols = Math.max(20, contentW - 4);
+          const ptyRows = Math.max(4, effectiveHeight - 7);
+          const pty = await ssh.execPty(conn, cmd, ptyCols, ptyRows, () => {});
           setPtyHandle(pty);
         } catch (err) {
           setStatus(`[!] ${(err as Error).message}`);
@@ -1996,6 +2000,8 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, onPtyActive
         <TerminalOverlay
           pty={ptyHandle}
           title={ptyTitle}
+          width={contentW}
+          height={Math.max(10, effectiveHeight - 2)}
           onDone={(result) => {
             setPtyHandle(null);
             if (result.exitCode !== 0) {
@@ -2035,37 +2041,36 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, onPtyActive
               <Spinner label={`Connecting to ${endpointLabel}...`} color={colors.yellow} />
             ) : conn.type === "ssh" && sshMetrics ? (
               <Box flexDirection="column">
-                <Text color={colors.textBright} bold>
-                  ◈ {sshMetrics.hostname ?? conn.host}
+                <Text color={colors.textBright} bold wrap="truncate">
+                  ◈ {truncate(sshMetrics.hostname ?? conn.host, rightInnerW - 2)}
                 </Text>
                 {sshMetrics.kernel && (
-                  <Text color={colors.textDim}>{truncate(sshMetrics.kernel, rightW - 4)}</Text>
+                  <Text color={colors.textDim} wrap="truncate">{truncate(sshMetrics.kernel, rightInnerW)}</Text>
                 )}
                 {sshMetrics.uptime && (
-                  <Text color={colors.cyan}>up {truncate(sshMetrics.uptime, rightW - 8)}</Text>
+                  <Text color={colors.cyan} wrap="truncate">up {truncate(sshMetrics.uptime, rightInnerW - 3)}</Text>
                 )}
-                <Box marginTop={1} flexDirection="column">
+                <Box marginTop={1} flexDirection="column" overflow="hidden">
                   {typeof sshMetrics.memPct === "number" && (
                     <MeterBar
                       label="RAM "
                       percent={sshMetrics.memPct}
-                      width={Math.max(8, Math.min(12, rightW - 24))}
-                      detail={sshMetrics.memDetail}
+                      width={Math.max(6, Math.min(10, rightInnerW - 20))}
+                      detail={rightInnerW >= 28 ? sshMetrics.memDetail : undefined}
                     />
                   )}
                   {typeof sshMetrics.diskPct === "number" && (
                     <MeterBar
                       label="Disk"
                       percent={sshMetrics.diskPct}
-                      width={Math.max(8, Math.min(12, rightW - 24))}
-                      detail={sshMetrics.diskDetail}
+                      width={Math.max(6, Math.min(10, rightInnerW - 20))}
+                      detail={rightInnerW >= 28 ? sshMetrics.diskDetail : undefined}
                     />
                   )}
                 </Box>
-                <Box marginTop={1}>
-                  <Text color={colors.textMuted}>
-                    Tip: press <Text color={colors.purpleBright} bold>Enter</Text> on{" "}
-                    <Text color={colors.green} bold>shell</Text> for full PTY
+                <Box marginTop={1} height={1} overflow="hidden">
+                  <Text color={colors.textMuted} wrap="truncate">
+                    Enter on <Text color={colors.green} bold>shell</Text> opens PTY
                   </Text>
                 </Box>
               </Box>
@@ -2199,7 +2204,7 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, onPtyActive
             <Box flexDirection="column" overflow="hidden">
               {/* SSH Interactive Category Pills */}
               {conn.type === "ssh" && (
-                <Box flexDirection="row" marginBottom={1} gap={1} overflow="hidden">
+                <Box flexDirection="row" height={1} width={leftInnerW} marginBottom={1} gap={1} overflow="hidden">
                   {SSH_CATEGORIES.map((cat, idx) => {
                     const active = cat.id === sshCategory;
                     return (
@@ -2207,6 +2212,7 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, onPtyActive
                         key={cat.id}
                         color={active ? colors.purpleBright : colors.textMuted}
                         bold={active}
+                        wrap="truncate"
                       >
                         {active ? `[${idx + 1}:${cat.label}]` : `${idx + 1}:${cat.label}`}
                       </Text>
@@ -2236,8 +2242,9 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, onPtyActive
 
                   const sshMeta = conn.type === "ssh" ? sshCmdMap.get(item) : undefined;
                   if (sshMeta) {
-                    const cmdColW = Math.min(26, Math.max(16, Math.floor((leftW - 10) * 0.48)));
-                    const descMax = Math.max(8, leftW - cmdColW - 12);
+                    const cmdColW = Math.min(24, Math.max(14, Math.floor((leftInnerW - 8) * 0.44)));
+                    const starW = isStarred ? 2 : 0;
+                    const descMax = Math.max(6, leftInnerW - 2 - 2 - cmdColW - 1 - starW);
                     const iconColor =
                       sshMeta.cmd === "shell" ? colors.green
                         : sshMeta.category === "docker" ? colors.blue
@@ -2245,17 +2252,17 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, onPtyActive
                         : sshMeta.category === "network" ? colors.cyan
                         : colors.purple;
                     return (
-                      <Box key={realIdx} flexDirection="row" overflow="hidden">
+                      <Box key={realIdx} height={1} width={leftInnerW} flexDirection="row" overflow="hidden">
                         <Text color={isSelected ? colors.purpleBright : colors.textDim} bold={isSelected}>
                           {isSelected ? "▸ " : "  "}
                         </Text>
                         <Text color={iconColor} bold={sshMeta.cmd === "shell" || isSelected}>
-                          {sshMeta.icon}
+                          {sshMeta.icon}{" "}
                         </Text>
-                        <Text color={isSelected ? colors.textBright : colors.text} bold={isSelected}>
-                          {" "}{truncate(sshMeta.cmd, cmdColW).padEnd(cmdColW)}
+                        <Text color={isSelected ? colors.textBright : colors.text} bold={isSelected} wrap="truncate">
+                          {truncate(sshMeta.cmd, cmdColW).padEnd(cmdColW)}
                         </Text>
-                        <Text color={isSelected ? colors.textDim : colors.textMuted}>
+                        <Text color={isSelected ? colors.textDim : colors.textMuted} wrap="truncate">
                           {" "}{truncate(sshMeta.desc, descMax)}
                         </Text>
                         {isStarred && <Text color={colors.yellow}> ★</Text>}
@@ -2264,12 +2271,12 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, onPtyActive
                   }
 
                   return (
-                    <Box key={realIdx} flexDirection="row" overflow="hidden">
+                    <Box key={realIdx} height={1} width={leftInnerW} flexDirection="row" overflow="hidden">
                       <Text color={isSelected ? colors.purpleBright : colors.textDim} bold={isSelected}>
                         {isSelected ? "▸ " : "  "}
                       </Text>
-                      <Text color={isSelected ? colors.textBright : (i % 2 === 0 ? colors.text : colors.textMuted)} bold={isSelected}>
-                        {truncate(item, Math.max(16, (isWide ? leftW : innerWidth) - 8))}
+                      <Text color={isSelected ? colors.textBright : (i % 2 === 0 ? colors.text : colors.textMuted)} bold={isSelected} wrap="truncate">
+                        {truncate(item, Math.max(12, leftInnerW - 4))}
                       </Text>
                       {isStarred && <Text color={colors.yellow}> ★</Text>}
                     </Box>

@@ -56,16 +56,16 @@ export function StyledBox({
       overflow={overflow}
     >
       {(title || rightTitle) && (
-        <Box justifyContent="space-between" width="100%" flexShrink={0}>
+        <Box justifyContent="space-between" width="100%" height={1} flexShrink={0} overflow="hidden">
           {title ? (
-            <Text color={titleColor} bold={focused || variant === "overlay"}>
+            <Text color={titleColor} bold={focused || variant === "overlay"} wrap="truncate">
               {focused ? "▸ " : ""}{title}
             </Text>
           ) : (
             <Text> </Text>
           )}
           {rightTitle && (
-            <Text color={colors.textMuted}>{rightTitle}</Text>
+            <Text color={colors.textMuted} wrap="truncate"> {rightTitle}</Text>
           )}
         </Box>
       )}
