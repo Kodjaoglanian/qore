@@ -46,6 +46,15 @@ const KNOWN_SERVICES: Record<number, string> = {
 
 export async function scanPorts(): Promise<DiscoveredPort[]> {
   try {
+    if (process.platform === "win32") {
+      const proc = Bun.spawn(["netstat", "-ano"], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const text = await new Response(proc.stdout).text();
+      await proc.exited;
+      return parseWindowsNetstat(text);
+    }
     const proc = Bun.spawn(["lsof", "-i", "-P", "-n"], {
       stdout: "pipe",
       stderr: "pipe",
@@ -56,6 +65,44 @@ export async function scanPorts(): Promise<DiscoveredPort[]> {
   } catch {
     return [];
   }
+}
+
+export function parseWindowsNetstat(text: string): DiscoveredPort[] {
+  const seen = new Set<string>();
+  const results: DiscoveredPort[] = [];
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line.startsWith("TCP") && !line.startsWith("UDP")) continue;
+    const parts = line.split(/\s+/);
+    if (parts.length < 4) continue;
+
+    const proto = parts[0].toLowerCase() === "udp" ? "udp" : "tcp";
+    const localAddr = parts[1];
+    const state = proto === "tcp" ? (parts[3] ?? "") : "LISTEN";
+    if (proto === "tcp" && state.toUpperCase() !== "LISTENING") continue;
+
+    const pidStr = proto === "tcp" ? parts[4] : parts[3];
+    const pid = parseInt(pidStr ?? "0", 10);
+    const portMatch = localAddr.match(/:(\d+)$/);
+    if (!portMatch) continue;
+    const port = parseInt(portMatch[1], 10);
+
+    const key = `${port}-${proto}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    results.push({
+      port,
+      protocol: proto,
+      service: KNOWN_SERVICES[port] ?? `:${port}`,
+      pid: isNaN(pid) ? 0 : pid,
+      command: `pid:${isNaN(pid) ? 0 : pid}`,
+      state: "LISTEN",
+    });
+  }
+
+  return results.sort((a, b) => a.port - b.port);
 }
 
 function parseLsof(text: string): DiscoveredPort[] {

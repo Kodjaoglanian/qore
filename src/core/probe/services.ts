@@ -1,6 +1,7 @@
 import type { ServiceInfo } from "../types.js";
 
 export async function getServices(): Promise<ServiceInfo[]> {
+  if (process.platform === "win32") return [];
   try {
     const proc = Bun.spawn(
       ["systemctl", "list-units", "--type=service", "--all", "--no-pager", "--no-legend"],

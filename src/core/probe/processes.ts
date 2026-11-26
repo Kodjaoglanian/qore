@@ -1,6 +1,7 @@
 import type { ProcessInfo } from "../types.js";
 
 export async function getTopProcesses(count: number = 20): Promise<ProcessInfo[]> {
+  if (process.platform === "win32") return [];
   try {
     const proc = Bun.spawn(["ps", "aux", "--sort=-%cpu"], {
       stdout: "pipe",

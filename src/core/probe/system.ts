@@ -1,4 +1,4 @@
-import { hostname, cpus, totalmem, freemem, loadavg } from "node:os";
+import { hostname, cpus, totalmem, freemem, loadavg, uptime, type as osType, release as osReleaseFn } from "node:os";
 import { readFileSync } from "node:fs";
 import type { HostInfo, DiskInfo } from "../types.js";
 
@@ -13,34 +13,38 @@ export async function getHostInfo(): Promise<HostInfo | null> {
     const memUsed = memTotal - memFree;
     const la = loadavg();
 
-    let osName = "unknown";
-    let kernel = "unknown";
-    try {
-      const osRelease = readFileSync("/etc/os-release", "utf8");
-      const nameMatch = osRelease.match(/^PRETTY_NAME="(.+)"/m);
-      if (nameMatch) osName = nameMatch[1];
-    } catch {}
-    try {
-      kernel = readFileSync("/proc/sys/kernel/osrelease", "utf8").trim();
-    } catch {}
+    let osName = `${osType()} ${osReleaseFn()}`;
+    let kernel = osReleaseFn();
+    let uptimeStr = formatUptime(uptime());
 
-    let uptimeStr = "unknown";
-    try {
-      const uptimeRaw = readFileSync("/proc/uptime", "utf8");
-      const uptimeSec = parseFloat(uptimeRaw.split(" ")[0]);
-      uptimeStr = formatUptime(uptimeSec);
-    } catch {}
+    if (process.platform !== "win32") {
+      try {
+        const osRelease = readFileSync("/etc/os-release", "utf8");
+        const nameMatch = osRelease.match(/^PRETTY_NAME="(.+)"/m);
+        if (nameMatch) osName = nameMatch[1];
+      } catch {}
+      try {
+        kernel = readFileSync("/proc/sys/kernel/osrelease", "utf8").trim();
+      } catch {}
+      try {
+        const uptimeRaw = readFileSync("/proc/uptime", "utf8");
+        const uptimeSec = parseFloat(uptimeRaw.split(" ")[0]);
+        uptimeStr = formatUptime(uptimeSec);
+      } catch {}
+    }
 
     let swapTotal = 0;
     let swapUsed = 0;
-    try {
-      const meminfo = readFileSync("/proc/meminfo", "utf8");
-      const swapTotalMatch = meminfo.match(/^SwapTotal:\s+(\d+)/m);
-      const swapFreeMatch = meminfo.match(/^SwapFree:\s+(\d+)/m);
-      if (swapTotalMatch) swapTotal = parseInt(swapTotalMatch[1]) * 1024;
-      const swapFree = swapFreeMatch ? parseInt(swapFreeMatch[1]) * 1024 : 0;
-      swapUsed = swapTotal - swapFree;
-    } catch {}
+    if (process.platform !== "win32") {
+      try {
+        const meminfo = readFileSync("/proc/meminfo", "utf8");
+        const swapTotalMatch = meminfo.match(/^SwapTotal:\s+(\d+)/m);
+        const swapFreeMatch = meminfo.match(/^SwapFree:\s+(\d+)/m);
+        if (swapTotalMatch) swapTotal = parseInt(swapTotalMatch[1]) * 1024;
+        const swapFree = swapFreeMatch ? parseInt(swapFreeMatch[1]) * 1024 : 0;
+        swapUsed = swapTotal - swapFree;
+      } catch {}
+    }
 
     const disks = await getDiskInfo();
 
@@ -65,6 +69,7 @@ export async function getHostInfo(): Promise<HostInfo | null> {
 }
 
 async function getDiskInfo(): Promise<DiskInfo[]> {
+  if (process.platform === "win32") return [];
   try {
     const proc = Bun.spawn(["df", "-h", "--output=source,target,size,used,avail,pcent"], {
       stdout: "pipe",
