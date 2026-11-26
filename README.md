@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/qore-logo.png" alt="Qore" width="100%" />
+<img src="assets/qore-logo.png" alt="Qore" width="560" />
 
 # Qore
 
