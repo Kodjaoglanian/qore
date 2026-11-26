@@ -34,6 +34,7 @@ interface ServiceScreenProps {
   onBack: () => void;
   onClose: () => void;
   onNewSession?: () => void;
+  onPtyActiveChange?: (active: boolean) => void;
   tabCount?: number;
   tabIdx?: number;
   focused?: boolean;
@@ -44,7 +45,7 @@ const BOX_OVERHEAD = 5;
 const HEADER = 2;
 const FOOTER = 4;
 
-export function ServiceScreen({ conn, onBack, onClose, onNewSession, tabCount, focused = true, heightOffset = 0 }: ServiceScreenProps) {
+export function ServiceScreen({ conn, onBack, onClose, onNewSession, onPtyActiveChange, tabCount, focused = true, heightOffset = 0 }: ServiceScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalSize();
   const effectiveHeight = termHeight - heightOffset;
   const margin = Math.max(1, Math.floor(termWidth * 0.03));
@@ -115,6 +116,13 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, tabCount, f
       setScrollOffset(0);
     }
   }, [displayedItems.length, maxItems]);
+
+  useEffect(() => {
+    onPtyActiveChange?.(Boolean(ptyHandle && focused));
+    return () => {
+      if (ptyHandle) onPtyActiveChange?.(false);
+    };
+  }, [ptyHandle, focused, onPtyActiveChange]);
 
   useEffect(() => {
     loadInitial();

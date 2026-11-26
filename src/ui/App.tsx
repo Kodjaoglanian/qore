@@ -70,6 +70,7 @@ export function App() {
   const [activeConns, setActiveConns] = useState<ActiveSession[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [ptyActive, setPtyActive] = useState(false);
   const [themeTick, setThemeTick] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -153,6 +154,19 @@ export function App() {
       showToast(`Theme: ${THEMES[next].label}`);
     }
   }, [showToast]);
+
+  const shutdownApp = useCallback(() => {
+    if (socketBridge) socketBridge.stop();
+    if (vault) vault.lock();
+    localS3Ref.current?.close();
+    try {
+      setRawMode(false);
+      if (typeof process.stdin.setRawMode === "function") process.stdin.setRawMode(false);
+      if (typeof process.stdin.pause === "function") process.stdin.pause();
+    } catch {}
+    exit();
+    process.exit(0);
+  }, [socketBridge, vault, setRawMode, exit]);
 
   const lockVault = useCallback(() => {
     if (socketBridge) {
@@ -238,11 +252,7 @@ export function App() {
           break;
         case "quit":
         case "exit":
-          if (socketBridge) socketBridge.stop();
-          if (vault) vault.lock();
-          localS3Ref.current?.close();
-          exit();
-          process.exit(0);
+          shutdownApp();
           break;
         case "":
           break;
@@ -347,18 +357,19 @@ export function App() {
   }, [vault, themeTick, runDiscovery, handleCommand, handleConnect, lockVault, applyTheme]);
 
   useInput((input, key) => {
+    // Allow Ctrl+C to exit from anywhere (except inside an active remote SSH PTY, where it sends \x03)
+    if (key.ctrl && input === "c") {
+      if (!(screen === "service" && ptyActive)) {
+        shutdownApp();
+      }
+      return;
+    }
     if (key.ctrl && input === "k") {
       setPaletteOpen((open) => !open);
       return;
     }
     if (paletteOpen) return;
 
-    if (key.ctrl && input === "c") {
-      if (socketBridge) socketBridge.stop();
-      if (vault) vault.lock();
-      localS3Ref.current?.close();
-      exit();
-    }
     if (screen === "service" && activeConns.length > 1) {
       if ((key.ctrl && key.tab) || (key.shift && key.tab)) {
         setActiveIdx((i) => (i + 1) % activeConns.length);
@@ -508,6 +519,7 @@ export function App() {
                       onBack={() => setScreen("connections")}
                       onClose={handleCloseConn}
                       onNewSession={() => handleConnect(s.conn)}
+                      onPtyActiveChange={setPtyActive}
                       tabCount={activeConns.length}
                       tabIdx={i}
                       focused={screenFocused && i === activeIdx}
