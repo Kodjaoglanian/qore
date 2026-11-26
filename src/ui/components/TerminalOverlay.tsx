@@ -3,6 +3,8 @@ import { Box, Text, useInput, useStdout } from "ink";
 import type { PtyHandle } from "../../core/connections/ssh.js";
 import { colors } from "../theme.js";
 import { ScrollIndicator } from "./ScrollIndicator.js";
+import { StyledBox } from "./Box.js";
+import { ShortcutBar } from "./ShortcutBar.js";
 
 interface TerminalOverlayProps {
   pty: PtyHandle;
@@ -18,25 +20,57 @@ interface ScreenLine {
   dim: boolean;
 }
 
-const ANSI_FG: Record<number, string> = {
-  0: colors.text,
-  1: colors.red,
-  2: colors.green,
-  3: colors.yellow,
-  4: colors.blue,
-  5: colors.purple,
-  6: colors.cyan,
-  7: colors.text,
-  9: colors.text,
-};
+function getAnsiColor(code: number): string {
+  const palette: Record<number, string> = {
+    0: colors.textDim,
+    1: colors.red,
+    2: colors.green,
+    3: colors.yellow,
+    4: colors.blue,
+    5: colors.purple,
+    6: colors.cyan,
+    7: colors.text,
+    8: colors.textMuted,
+    9: colors.red,
+    10: colors.green,
+    11: colors.yellow,
+    12: colors.blue,
+    13: colors.purpleBright,
+    14: colors.cyan,
+    15: colors.textBright,
+  };
+  return palette[code] ?? colors.text;
+}
 
 function colorFromCell(cell: any): string | undefined {
   const mode = cell.getFgColorMode();
   const color = cell.getFgColor();
-  if (mode === 1) return ANSI_FG[color] ?? colors.text;
-  if (mode === 2) return undefined;
+  // xterm-headless color modes: 0 = default, 1 = palette (16/256), 2 = RGB 24-bit
+  if (mode === 1) {
+    if (color >= 0 && color <= 15) return getAnsiColor(color);
+    return colors.text;
+  }
+  if (mode === 2) {
+    const r = (color >> 16) & 0xff;
+    const g = (color >> 8) & 0xff;
+    const b = color & 0xff;
+    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  }
   return undefined;
 }
+
+const CTRL_MAP: Record<string, string> = {
+  a: "\x01",
+  c: "\x03",
+  d: "\x04",
+  e: "\x05",
+  k: "\x0b",
+  l: "\x0c",
+  r: "\x12",
+  u: "\x15",
+  w: "\x17",
+  z: "\x1a",
+};
 
 export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverlayProps) {
   const { stdout } = useStdout();
@@ -49,8 +83,8 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
   const finishedRef = useRef<number | null>(null);
   const renderPending = useRef(false);
 
-  const termW = Math.max(20, (stdout.columns || process.stdout.columns || 80) - 2);
-  const termH = Math.max(8, (stdout.rows || process.stdout.rows || 24) - 6);
+  const termW = Math.max(24, (stdout.columns || process.stdout.columns || 80) - 8);
+  const termH = Math.max(8, (stdout.rows || process.stdout.rows || 24) - 10);
 
   const renderScreen = useCallback(() => {
     if (renderPending.current) return;
@@ -129,45 +163,66 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
       return;
     }
 
-    if (key.ctrl && input === "c") {
-      try { pty.send("\x03"); } catch {}
-      return;
-    }
-
-    if (key.ctrl && input === "d") {
-      try { pty.send("\x04"); } catch {}
-      return;
-    }
-
-    if (key.upArrow) {
-      scrollOffset.current = Math.max(0, scrollOffset.current - 1);
-      setShowScroll(true);
-      renderScreen();
-      return;
-    }
-    if (key.downArrow) {
-      scrollOffset.current += 1;
-      setShowScroll(true);
-      renderScreen();
-      return;
-    }
+    // PgUp / PgDn scrollback
     if (key.pageUp) {
-      scrollOffset.current = Math.max(0, scrollOffset.current - 10);
-      setShowScroll(true);
-      renderScreen();
-      return;
-    }
-    if (key.pageDown) {
       scrollOffset.current += 10;
       setShowScroll(true);
       renderScreen();
       return;
     }
+    if (key.pageDown) {
+      scrollOffset.current = Math.max(0, scrollOffset.current - 10);
+      setShowScroll(scrollOffset.current > 0);
+      renderScreen();
+      return;
+    }
 
-    scrollOffset.current = 0;
-    setShowScroll(false);
+    // If finished, allow Up/Down arrows to scroll output
+    if (finishedRef.current !== null) {
+      if (key.upArrow) {
+        scrollOffset.current += 1;
+        setShowScroll(true);
+        renderScreen();
+      } else if (key.downArrow) {
+        scrollOffset.current = Math.max(0, scrollOffset.current - 1);
+        setShowScroll(scrollOffset.current > 0);
+        renderScreen();
+      }
+      return;
+    }
 
-    if (finishedRef.current !== null) return;
+    // Any live input snaps back to bottom of terminal
+    if (showScroll) {
+      scrollOffset.current = 0;
+      setShowScroll(false);
+    }
+
+    // Forward Ctrl+key combinations to PTY
+    if (key.ctrl && input) {
+      const seq = CTRL_MAP[input.toLowerCase()];
+      if (seq) {
+        try { pty.send(seq); } catch {}
+      }
+      return;
+    }
+
+    // Forward full navigation & arrow keys to PTY (bash history, vim, nano, htop)
+    if (key.upArrow) {
+      try { pty.send("\x1b[A"); } catch {}
+      return;
+    }
+    if (key.downArrow) {
+      try { pty.send("\x1b[B"); } catch {}
+      return;
+    }
+    if (key.rightArrow) {
+      try { pty.send("\x1b[C"); } catch {}
+      return;
+    }
+    if (key.leftArrow) {
+      try { pty.send("\x1b[D"); } catch {}
+      return;
+    }
 
     if (key.return) {
       try { pty.send("\r"); } catch {}
@@ -238,12 +293,80 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
     });
   }
 
+  const statusBadge =
+    finished === null
+      ? `● LIVE PTY · ${termW}×${termH}`
+      : finished === 0
+        ? `✓ EXIT 0 · esc/q to return`
+        : `✗ EXIT ${finished} · esc/q to return`;
+
   return (
-    <Box flexDirection="column" height={termH + 2}>
-      <Box marginBottom={0} flexDirection="row" justifyContent="space-between">
-        <Text color={finished !== null ? colors.green : colors.purpleBright} bold>
-          {"  > "}{title}{finished !== null ? ` [done exit=${finished} · esc/q to return]` : " [terminal — type to interact · esc to exit]"}
-        </Text>
+    <Box flexDirection="column" height={termH + 5} overflow="hidden">
+      <StyledBox
+        title={`>_ ${title}`}
+        rightTitle={statusBadge}
+        focused
+        borderColor={finished === null ? colors.purple : finished === 0 ? colors.green : colors.red}
+        height={termH + 3}
+        padding={0}
+        overflow="hidden"
+      >
+        <Box flexDirection="column" height={termH} paddingX={1} overflow="hidden">
+          {lines.map((line, i) => {
+            const isCursorLine = !showScroll && i === cursorY && finished === null;
+
+            if (isCursorLine && cursorX < line.text.length) {
+              const before = line.text.slice(0, cursorX);
+              const cursorChar = line.text.charAt(cursorX);
+              const after = line.text.slice(cursorX + 1);
+              return (
+                <Box key={i}>
+                  <Text color={line.fg || colors.text} bold={line.bold} dimColor={line.dim}>{before}</Text>
+                  <Text backgroundColor={line.fg || colors.purpleBright} bold>{cursorChar}</Text>
+                  <Text color={line.fg || colors.text} bold={line.bold} dimColor={line.dim}>{after}</Text>
+                </Box>
+              );
+            } else if (isCursorLine) {
+              const padded = line.text + " ".repeat(Math.max(0, cursorX - line.text.length));
+              return (
+                <Box key={i}>
+                  <Text color={line.fg || colors.text} bold={line.bold} dimColor={line.dim}>{padded}</Text>
+                  <Text backgroundColor={colors.purpleBright}> </Text>
+                </Box>
+              );
+            }
+
+            return (
+              <Box key={i}>
+                <Text
+                  color={line.fg || colors.text}
+                  bold={line.bold}
+                  dimColor={line.dim}
+                >
+                  {line.text}
+                </Text>
+              </Box>
+            );
+          })}
+        </Box>
+      </StyledBox>
+
+      <Box marginTop={1} flexDirection="row" justifyContent="space-between">
+        <ShortcutBar
+          shortcuts={
+            finished !== null
+              ? [
+                  { key: "↑/↓", label: "scroll" },
+                  { key: "esc/q", label: "return" },
+                ]
+              : [
+                  { key: "↑↓←→", label: "terminal" },
+                  { key: "PgUp/Dn", label: "scrollback" },
+                  { key: "^D", label: "exit shell" },
+                  { key: "esc", label: "close PTY" },
+                ]
+          }
+        />
         {showScroll && (
           <ScrollIndicator
             offset={scrollOffset.current}
@@ -251,44 +374,6 @@ export function TerminalOverlay({ pty, title, onDone, onCancel }: TerminalOverla
             visible={termH}
           />
         )}
-      </Box>
-      <Box flexDirection="column" height={termH} overflow="hidden">
-        {lines.map((line, i) => {
-          const isCursorLine = !showScroll && i === cursorY && finished === null;
-
-          if (isCursorLine && cursorX < line.text.length) {
-            const before = line.text.slice(0, cursorX);
-            const cursorChar = line.text.charAt(cursorX);
-            const after = line.text.slice(cursorX + 1);
-            return (
-              <Box key={i}>
-                <Text color={line.fg || colors.text} bold={line.bold} dimColor={line.dim}>{before}</Text>
-                <Text backgroundColor={line.fg || colors.purpleBright} bold>{cursorChar}</Text>
-                <Text color={line.fg || colors.text} bold={line.bold} dimColor={line.dim}>{after}</Text>
-              </Box>
-            );
-          } else if (isCursorLine) {
-            const padded = line.text + " ".repeat(Math.max(0, cursorX - line.text.length));
-            return (
-              <Box key={i}>
-                <Text color={line.fg || colors.text} bold={line.bold} dimColor={line.dim}>{padded}</Text>
-                <Text backgroundColor={colors.purpleBright}> </Text>
-              </Box>
-            );
-          }
-
-          return (
-            <Box key={i}>
-              <Text
-                color={line.fg || colors.text}
-                bold={line.bold}
-                dimColor={line.dim}
-              >
-                {line.text}
-              </Text>
-            </Box>
-          );
-        })}
       </Box>
     </Box>
   );

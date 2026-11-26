@@ -1,12 +1,21 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { Box, Text, useInput } from "ink";
-import { colors } from "./theme.js";
+import { colors, latencyColor } from "./theme.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { StyledBox } from "./components/Box.js";
 import { InputBar } from "./components/InputBar.js";
 import { ShortcutBar } from "./components/ShortcutBar.js";
 import { Breadcrumb } from "./components/Breadcrumb.js";
 import { ScrollIndicator } from "./components/ScrollIndicator.js";
+import { MeterBar } from "./components/ProgressBar.js";
+import { Spinner } from "./components/Spinner.js";
+import {
+  SSH_CATEGORIES,
+  SSH_COMMANDS,
+  parseSshMetrics,
+  getOverlayLineColor,
+  type SshCategory,
+} from "./service-helpers.js";
 import type { ConnectionConfig } from "../core/vault/types.js";
 import { CONNECTION_LABELS, CONNECTION_ICONS } from "../core/vault/types.js";
 import { getManager } from "../core/connections/manager.js";
@@ -59,12 +68,53 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, tabCount, f
   const [gitStatus, setGitStatus] = useState<GitFileStatus[]>([]);
   const [gitBranches, setGitBranches] = useState<GitBranchInfo[]>([]);
   const [gitLog, setGitLog] = useState<GitLogEntry[]>([]);
+  const [connState, setConnState] = useState<"connecting" | "connected" | "error">("connecting");
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [sshCategory, setSshCategory] = useState<SshCategory>("all");
+  const [filter, setFilter] = useState<string | null>(null);
+  const [inputText, setInputText] = useState("");
+  const [recentActivity, setRecentActivity] = useState<{ cmd: string; time: string }[]>([]);
 
+  const isWide = termWidth >= 100;
   const availH = Math.max(8, effectiveHeight - HEADER - FOOTER);
-  const listH = Math.floor(availH * 0.55);
-  const infoH = Math.floor(availH * 0.35);
+  const listH = isWide ? availH : Math.floor(availH * 0.58);
+  const infoH = isWide ? availH : Math.max(5, availH - listH - 1);
+  const leftW = isWide ? Math.floor(innerWidth * 0.62) : innerWidth;
+  const rightW = isWide ? Math.max(26, innerWidth - leftW - 1) : innerWidth;
 
-  const maxItems = Math.max(1, listH - BOX_OVERHEAD);
+  const sshCategoryOverhead = conn.type === "ssh" ? 2 : 0;
+  const maxItems = Math.max(1, listH - BOX_OVERHEAD - sshCategoryOverhead);
+
+  const sshCmdMap = useMemo(() => {
+    const map = new Map<string, (typeof SSH_COMMANDS)[number]>();
+    for (const c of SSH_COMMANDS) map.set(c.cmd, c);
+    return map;
+  }, []);
+
+  const displayedItems = useMemo(() => {
+    let list = items;
+    if (conn.type === "ssh" && sshCategory !== "all") {
+      list = list.filter((cmd) => sshCmdMap.get(cmd)?.category === sshCategory);
+    }
+    if (filter) {
+      const f = filter.toLowerCase();
+      list = list.filter((item) => {
+        if (item.toLowerCase().includes(f)) return true;
+        const meta = sshCmdMap.get(item);
+        return meta ? meta.desc.toLowerCase().includes(f) : false;
+      });
+    }
+    return list;
+  }, [items, conn.type, sshCategory, filter, sshCmdMap]);
+
+  useEffect(() => {
+    if (selectedIdx >= displayedItems.length) {
+      setSelectedIdx(Math.max(0, displayedItems.length - 1));
+    }
+    if (scrollOffset > Math.max(0, displayedItems.length - maxItems)) {
+      setScrollOffset(0);
+    }
+  }, [displayedItems.length, maxItems]);
 
   useEffect(() => {
     loadInitial();
@@ -72,21 +122,29 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, tabCount, f
   }, []);
 
   const loadInitial = useCallback(async () => {
+    setConnState("connecting");
     setStatus("Connecting...");
     const manager = getManager(conn.type);
     if (!manager) {
+      setConnState("error");
       setStatus(`No manager for type: ${conn.type}`);
       return;
     }
     try {
+      const start = Date.now();
       const ok = await manager.testConnection(conn);
+      const elapsed = Date.now() - start;
       if (!ok) {
         const sshManager = conn.type === "ssh" ? (manager as SshManager) : null;
         const detail = sshManager?.lastError ? ` — ${sshManager.lastError}` : "";
+        setConnState("error");
+        setLatencyMs(null);
         setStatus(`[!] Failed to connect to ${conn.name}${detail}`);
         return;
       }
-      setStatus(`[ok] Connected to ${conn.name}`);
+      setConnState("connected");
+      setLatencyMs(elapsed);
+      setStatus(`[ok] Connected to ${conn.name} (${elapsed}ms)`);
 
       const infoData = await manager.getInfo(conn);
       setInfo(infoData);
@@ -108,21 +166,7 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, tabCount, f
       } else if (conn.type === "http") {
         setItems(["GET /", "GET /health", "GET /status", "GET /api", "GET /docs"]);
       } else if (conn.type === "ssh") {
-        setItems([
-          "shell", "exec <command>", "sysinfo", "disk", "mem", "procs", "net",
-          "ports", "firewall [status|allow|deny|enable|disable]",
-          "top", "netstat", "tail <file> [-f]", "edit <file>",
-          "security-audit", "snapshot", "diff <snap1> <snap2>",
-          "deploy <script>", "git-status", "compose <up|down|ps|logs|restart|pull>",
-          "ls [path]", "cat <file>", "find <pattern> [path]", "du [path]",
-          "services", "svc <action> <name>",
-          "docker ps", "docker images", "docker stats", "docker logs [-f] <ctr>", "docker <start|stop|restart|rm> <ctr>",
-          "users", "cron", "env", "pkgs [search]",
-          "kill <pid> [signal]", "ping <host>",
-          "upload <local> <remote>", "download <remote> <local>",
-          "logs [service]", "logs docker <container>",
-          "reboot yes", "shutdown yes", "close", "new",
-        ]);
+        setItems(SSH_COMMANDS.map((c) => c.cmd));
       } else if (conn.type === "git") {
         const git = manager as GitManager;
         const branches = await git.getBranches(conn);
@@ -196,10 +240,23 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, tabCount, f
       if (h[h.length - 1] === trimmed) return h;
       return [...h, trimmed].slice(-100);
     });
+    setRecentActivity((prev) => [
+      { cmd: trimmed, time: new Date().toLocaleTimeString() },
+      ...prev.slice(0, 7),
+    ]);
     const lower = trimmed.toLowerCase();
     const parts = lower.split(/\s+/);
     const rawParts = trimmed.split(/\s+/);
     const command = parts[0];
+
+    if (command === "filter" || command === "search") {
+      const q = trimmed.slice(command.length).trim();
+      setFilter(q || null);
+      setSelectedIdx(0);
+      setScrollOffset(0);
+      setStatus(q ? `[ok] Filter: "${q}"` : "[ok] Filter cleared");
+      return;
+    }
 
     if (command === "back" || command === "home") {
       onBack();
@@ -1855,16 +1912,37 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, tabCount, f
         setOverlayContent([]);
       }
       if (key.upArrow) setOverlayScroll((o) => Math.max(0, o - 1));
-      if (key.downArrow) setOverlayScroll((o) => o + 1);
+      if (key.downArrow) setOverlayScroll((o) => Math.min(Math.max(0, overlayContent.length - 1), o + 1));
       if (key.pageUp) setOverlayScroll((o) => Math.max(0, o - 10));
-      if (key.pageDown) setOverlayScroll((o) => o + 10);
+      if (key.pageDown) setOverlayScroll((o) => Math.min(Math.max(0, overlayContent.length - 1), o + 10));
+      const k = key as { home?: boolean; end?: boolean };
+      if (k.home) setOverlayScroll(0);
+      if (k.end) setOverlayScroll(Math.max(0, overlayContent.length - Math.max(1, availH - BOX_OVERHEAD)));
       return;
     }
 
     if (key.escape) {
-      onBack();
+      if (filter) {
+        setFilter(null);
+        setStatus("[ok] Filter cleared");
+      } else {
+        onBack();
+      }
       return;
     }
+
+    // SSH category quick-jump (1-6) only when InputBar is empty
+    if (conn.type === "ssh" && inputText.length === 0 && input >= "1" && input <= "6" && !key.ctrl && !key.meta) {
+      const idx = parseInt(input, 10) - 1;
+      const cat = SSH_CATEGORIES[idx];
+      if (cat) {
+        setSshCategory(cat.id);
+        setSelectedIdx(0);
+        setScrollOffset(0);
+      }
+      return;
+    }
+
     if (key.pageUp) {
       setSelectedIdx((i) => {
         const ni = Math.max(0, i - maxItems);
@@ -1874,28 +1952,38 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, tabCount, f
     }
     if (key.pageDown) {
       setSelectedIdx((i) => {
-        const ni = Math.min(items.length - 1, i + maxItems);
+        const ni = Math.min(Math.max(0, displayedItems.length - 1), i + maxItems);
         if (ni >= maxItems) setScrollOffset(ni - maxItems + 1);
         return ni;
       });
     }
   }, { isActive: focused && !ptyHandle });
 
-  const maxScroll = Math.max(0, items.length - maxItems);
+  const maxScroll = Math.max(0, displayedItems.length - maxItems);
   const clampedScroll = Math.min(scrollOffset, maxScroll);
-  const visibleItems = items.slice(clampedScroll, clampedScroll + maxItems);
-  const itemLabel = conn.type === "s3" ? "Buckets" : conn.type === "redis" ? "Keys" : conn.type === "http" ? "Endpoints" : conn.type === "ssh" ? "Commands" : conn.type === "git" ? "Branches & Commands" : conn.type === "vmware" ? "Virtual Machines" : "Databases";
+  const visibleItems = displayedItems.slice(clampedScroll, clampedScroll + maxItems);
+  const itemLabel =
+    conn.type === "s3" ? "Buckets & Actions"
+      : conn.type === "redis" ? "Keys"
+      : conn.type === "http" ? "Endpoints"
+      : conn.type === "ssh" ? "SSH Command Center"
+      : conn.type === "git" ? "Branches & Commands"
+      : conn.type === "vmware" ? "Virtual Machines"
+      : "Databases & Actions";
 
-  const overlayLines = overlayContent.slice(overlayScroll, overlayScroll + Math.max(1, availH - BOX_OVERHEAD));
+  const overlayVisibleH = Math.max(1, availH - BOX_OVERHEAD);
+  const overlayLines = overlayContent.slice(overlayScroll, overlayScroll + overlayVisibleH);
+  const sshMetrics = useMemo(() => (conn.type === "ssh" ? parseSshMetrics(info) : null), [conn.type, info]);
+  const endpointLabel = `${conn.username ? `${conn.username}@` : ""}${conn.host}:${conn.port}`;
 
   if (ptyHandle) {
     return (
       <Box flexDirection="column" width={termWidth} height={effectiveHeight} paddingX={margin} overflow="hidden">
         <Box marginBottom={1} height={1} flexDirection="row" justifyContent="space-between">
-          <Box flexDirection="row">
-            <Breadcrumb items={["Home", "Connections", `${CONNECTION_ICONS[conn.type]} ${conn.name}`]} />
+          <Box flexDirection="row" gap={1}>
+            <Breadcrumb items={["Home", "Connections", `${CONNECTION_ICONS[conn.type]} ${conn.name}`, "PTY"]} />
           </Box>
-          <Text color={colors.textMuted}>{CONNECTION_LABELS[conn.type]} · {conn.host}:{conn.port}</Text>
+          <Text color={colors.textMuted}>{CONNECTION_LABELS[conn.type]} · {endpointLabel}</Text>
         </Box>
         <TerminalOverlay
           pty={ptyHandle}
@@ -1917,101 +2005,291 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, tabCount, f
     );
   }
 
+  const renderInfoPanel = () => {
+    const infoEntries = Object.entries(info);
+    const maxInfoRows = Math.max(2, infoH - BOX_OVERHEAD);
+    const activityH = isWide ? Math.max(4, Math.floor(infoH * 0.38)) : 0;
+    const telemetryH = isWide ? Math.max(6, infoH - activityH - 1) : infoH;
+
+    return (
+      <Box flexDirection="column" width={isWide ? rightW : "100%"} height={infoH} overflow="hidden">
+        <StyledBox
+          title={conn.type === "ssh" ? "Server Telemetry" : "Session Info"}
+          rightTitle={conn.useTls ? "TLS" : undefined}
+          focused={false}
+          padding={1}
+          height={telemetryH}
+          overflow="hidden"
+          marginBottom={isWide ? 1 : 0}
+        >
+          <Box flexDirection="column" overflow="hidden">
+            {connState === "connecting" ? (
+              <Spinner label={`Connecting to ${endpointLabel}...`} color={colors.yellow} />
+            ) : conn.type === "ssh" && sshMetrics ? (
+              <Box flexDirection="column">
+                <Text color={colors.textBright} bold>
+                  ◈ {sshMetrics.hostname ?? conn.host}
+                </Text>
+                {sshMetrics.kernel && (
+                  <Text color={colors.textDim}>{truncate(sshMetrics.kernel, rightW - 4)}</Text>
+                )}
+                {sshMetrics.uptime && (
+                  <Text color={colors.cyan}>up {truncate(sshMetrics.uptime, rightW - 8)}</Text>
+                )}
+                <Box marginTop={1} flexDirection="column">
+                  {typeof sshMetrics.memPct === "number" && (
+                    <MeterBar
+                      label="RAM "
+                      percent={sshMetrics.memPct}
+                      width={Math.max(8, Math.min(12, rightW - 24))}
+                      detail={sshMetrics.memDetail}
+                    />
+                  )}
+                  {typeof sshMetrics.diskPct === "number" && (
+                    <MeterBar
+                      label="Disk"
+                      percent={sshMetrics.diskPct}
+                      width={Math.max(8, Math.min(12, rightW - 24))}
+                      detail={sshMetrics.diskDetail}
+                    />
+                  )}
+                </Box>
+                <Box marginTop={1}>
+                  <Text color={colors.textMuted}>
+                    Tip: press <Text color={colors.purpleBright} bold>Enter</Text> on{" "}
+                    <Text color={colors.green} bold>shell</Text> for full PTY
+                  </Text>
+                </Box>
+              </Box>
+            ) : (
+              infoEntries.slice(0, maxInfoRows).map(([k, v]) => (
+                <Box key={k}>
+                  <Text color={colors.textMuted} wrap="truncate">
+                    <Text color={colors.purpleDim}>{k.padEnd(10)}</Text>{" "}
+                    <Text color={colors.text}>{truncate(v, Math.max(10, rightW - 15))}</Text>
+                  </Text>
+                </Box>
+              ))
+            )}
+            {status && (
+              <Box marginTop={1}>
+                <Text
+                  color={status.startsWith("[ok]") ? colors.green : status.startsWith("[!]") ? colors.red : colors.yellow}
+                  wrap="truncate"
+                >
+                  {truncate(status, Math.max(12, rightW - 4))}
+                </Text>
+              </Box>
+            )}
+          </Box>
+        </StyledBox>
+
+        {isWide && (
+          <StyledBox
+            title="Recent & Favorites"
+            rightTitle={favorites.length > 0 ? `★ ${favorites.length}` : undefined}
+            focused={false}
+            padding={1}
+            height={activityH}
+            overflow="hidden"
+          >
+            <Box flexDirection="column" overflow="hidden">
+              {recentActivity.length === 0 && favorites.length === 0 ? (
+                <Text color={colors.textMuted}>No commands run yet. Type 'star &lt;cmd&gt;' to pin.</Text>
+              ) : (
+                <>
+                  {recentActivity.slice(0, Math.max(1, activityH - 5)).map((a, idx) => (
+                    <Box key={`${a.time}-${idx}`} justifyContent="space-between">
+                      <Text color={colors.text} wrap="truncate">▸ {truncate(a.cmd, Math.max(10, rightW - 14))}</Text>
+                      <Text color={colors.textMuted}>{a.time}</Text>
+                    </Box>
+                  ))}
+                  {favorites.slice(0, 2).map((fav) => (
+                    <Text key={fav} color={colors.yellow} wrap="truncate">
+                      ★ {truncate(fav, Math.max(10, rightW - 6))}
+                    </Text>
+                  ))}
+                </>
+              )}
+            </Box>
+          </StyledBox>
+        )}
+      </Box>
+    );
+  };
+
   return (
     <Box flexDirection="column" width={termWidth} height={effectiveHeight} paddingX={margin} overflow="hidden">
+      {/* Rich Session Header */}
       <Box marginBottom={1} height={1} flexDirection="row" justifyContent="space-between">
-        <Box flexDirection="row">
+        <Box flexDirection="row" gap={1}>
           <Breadcrumb items={["Home", "Connections", `${CONNECTION_ICONS[conn.type]} ${conn.name}`]} />
+          {connState === "connecting" ? (
+            <Spinner label="connecting" color={colors.yellow} />
+          ) : connState === "connected" ? (
+            <Text color={colors.green} bold>
+              ● online
+              {latencyMs !== null && (
+                <Text color={latencyColor(latencyMs)}> {latencyMs}ms</Text>
+              )}
+            </Text>
+          ) : (
+            <Text color={colors.red} bold>✗ offline</Text>
+          )}
+          {filter && <Text color={colors.cyan}>· filter:{filter}</Text>}
         </Box>
-        <Text color={colors.textMuted}>{CONNECTION_LABELS[conn.type]} · {conn.host}:{conn.port}</Text>
+        <Box flexDirection="row" gap={1}>
+          <Text color={colors.purpleDim}>{CONNECTION_LABELS[conn.type]}</Text>
+          <Text color={colors.textMuted}>·</Text>
+          <Text color={colors.textDim}>{endpointLabel}</Text>
+          {conn.useTls && <Text color={colors.cyan} bold>[TLS]</Text>}
+        </Box>
       </Box>
 
       {overlay ? (
         <Box flexDirection="column" height={availH} overflow="hidden">
           <Box marginBottom={1} flexDirection="row" justifyContent="space-between">
-            <Text color={colors.purpleBright} bold>{"  > "}{overlay}{isStreaming ? " [input mode — type and Enter to send]" : ""}</Text>
-            <ScrollIndicator offset={overlayScroll} total={overlayContent.length} visible={Math.max(1, availH - BOX_OVERHEAD)} />
+            <Text color={colors.purpleBright} bold>
+              ◈ {overlay}{isStreaming ? " · [LIVE STREAM — type & Enter to send, Esc to stop]" : ""}
+            </Text>
+            <ScrollIndicator offset={overlayScroll} total={overlayContent.length} visible={overlayVisibleH} />
           </Box>
-          <StyledBox title={overlay} focused variant="overlay" padding={1} height={availH - 2} overflow="hidden">
-            <Box flexDirection="column">
+          <StyledBox
+            title={overlay}
+            rightTitle={`${overlayContent.length} lines`}
+            focused
+            variant="overlay"
+            padding={1}
+            height={availH - 2}
+            overflow="hidden"
+          >
+            <Box flexDirection="column" overflow="hidden">
               {overlayLines.map((line, i) => (
-                <Box key={i}><Text color={i % 2 === 0 ? colors.text : colors.textMuted}>{line}</Text></Box>
+                <Box key={overlayScroll + i}>
+                  <Text color={getOverlayLineColor(line, overlayScroll + i)} wrap="truncate">
+                    {truncate(line, innerWidth - 4)}
+                  </Text>
+                </Box>
               ))}
             </Box>
           </StyledBox>
         </Box>
       ) : (
-        <Box flexDirection="column" height={availH} overflow="hidden">
-          <StyledBox title={itemLabel} focused padding={1} height={listH} overflow="hidden" marginBottom={1}>
-            <Box flexDirection="column">
-              {items.length === 0 ? (
-                <Text color={colors.textMuted}>{"  No items found."}</Text>
+        <Box flexDirection={isWide ? "row" : "column"} height={availH} overflow="hidden">
+          {/* Left / Main Command & Items Pane */}
+          <StyledBox
+            title={itemLabel}
+            rightTitle={`${displayedItems.length} items`}
+            focused
+            padding={1}
+            width={isWide ? leftW : "100%"}
+            height={listH}
+            overflow="hidden"
+            marginRight={isWide ? 1 : 0}
+            marginBottom={isWide ? 0 : 1}
+          >
+            <Box flexDirection="column" overflow="hidden">
+              {/* SSH Interactive Category Pills */}
+              {conn.type === "ssh" && (
+                <Box flexDirection="row" marginBottom={1} gap={1} overflow="hidden">
+                  {SSH_CATEGORIES.map((cat, idx) => {
+                    const active = cat.id === sshCategory;
+                    return (
+                      <Text
+                        key={cat.id}
+                        color={active ? colors.purpleBright : colors.textMuted}
+                        bold={active}
+                      >
+                        {active ? `[${idx + 1}:${cat.label}]` : `${idx + 1}:${cat.label}`}
+                      </Text>
+                    );
+                  })}
+                </Box>
+              )}
+
+              {displayedItems.length === 0 ? (
+                <Text color={colors.textMuted}>
+                  {filter ? `  No items match "${filter}". Press Esc to clear.` : "  No items found."}
+                </Text>
               ) : (
                 visibleItems.map((item, i) => {
                   const realIdx = clampedScroll + i;
+                  const isSelected = realIdx === selectedIdx;
+                  const isDivider = item.startsWith("---") && item.endsWith("---");
+                  const isStarred = favorites.includes(item);
+
+                  if (isDivider) {
+                    return (
+                      <Box key={realIdx} marginTop={0}>
+                        <Text color={colors.purpleDim} bold>  {item}</Text>
+                      </Box>
+                    );
+                  }
+
+                  const sshMeta = conn.type === "ssh" ? sshCmdMap.get(item) : undefined;
+                  if (sshMeta) {
+                    const cmdColW = Math.min(26, Math.max(16, Math.floor((leftW - 10) * 0.48)));
+                    const descMax = Math.max(8, leftW - cmdColW - 12);
+                    const iconColor =
+                      sshMeta.cmd === "shell" ? colors.green
+                        : sshMeta.category === "docker" ? colors.blue
+                        : sshMeta.category === "ops" ? colors.yellow
+                        : sshMeta.category === "network" ? colors.cyan
+                        : colors.purple;
+                    return (
+                      <Box key={realIdx} flexDirection="row" overflow="hidden">
+                        <Text color={isSelected ? colors.purpleBright : colors.textDim} bold={isSelected}>
+                          {isSelected ? "▸ " : "  "}
+                        </Text>
+                        <Text color={iconColor} bold={sshMeta.cmd === "shell" || isSelected}>
+                          {sshMeta.icon}
+                        </Text>
+                        <Text color={isSelected ? colors.textBright : colors.text} bold={isSelected}>
+                          {" "}{truncate(sshMeta.cmd, cmdColW).padEnd(cmdColW)}
+                        </Text>
+                        <Text color={isSelected ? colors.textDim : colors.textMuted}>
+                          {" "}{truncate(sshMeta.desc, descMax)}
+                        </Text>
+                        {isStarred && <Text color={colors.yellow}> ★</Text>}
+                      </Box>
+                    );
+                  }
+
                   return (
-                    <Box key={realIdx} flexDirection="row">
-                      <Text color={realIdx === selectedIdx ? colors.purple : colors.textDim}>
-                        {realIdx === selectedIdx ? ">" : " "}{" "}
+                    <Box key={realIdx} flexDirection="row" overflow="hidden">
+                      <Text color={isSelected ? colors.purpleBright : colors.textDim} bold={isSelected}>
+                        {isSelected ? "▸ " : "  "}
                       </Text>
-                      <Text color={realIdx === selectedIdx ? colors.textBright : (i % 2 === 0 ? colors.text : colors.textMuted)}>
-                        {truncate(item, innerWidth - 4)}
+                      <Text color={isSelected ? colors.textBright : (i % 2 === 0 ? colors.text : colors.textMuted)} bold={isSelected}>
+                        {truncate(item, Math.max(16, (isWide ? leftW : innerWidth) - 8))}
                       </Text>
+                      {isStarred && <Text color={colors.yellow}> ★</Text>}
                     </Box>
                   );
                 })
               )}
-              {items.length > maxItems && (
+
+              {displayedItems.length > maxItems && (
                 <Box marginTop={0}>
-                  <ScrollIndicator offset={clampedScroll} total={items.length} visible={maxItems} />
+                  <ScrollIndicator offset={clampedScroll} total={displayedItems.length} visible={maxItems} />
                 </Box>
               )}
             </Box>
           </StyledBox>
 
-          <StyledBox title="Info" focused={false} padding={1} height={infoH} overflow="hidden">
-            <Box flexDirection="column">
-              {Object.entries(info).slice(0, infoH - BOX_OVERHEAD).map(([k, v]) => (
-                <Box key={k}>
-                  <Text color={colors.textMuted}>
-                    {"  "}<Text color={colors.textDim}>{k}: </Text>
-                    <Text color={colors.text}>{truncate(v, innerWidth - k.length - 6)}</Text>
-                  </Text>
-                </Box>
-              ))}
-              {status && (
-                <Text color={status.startsWith("[ok]") ? colors.green : status.startsWith("[!]") ? colors.red : colors.textMuted}>
-                  {"  "}{status}
-                </Text>
-              )}
-              {items.length === 0 && (conn.type === "postgres" || conn.type === "mysql" || conn.type === "mongo") && (
-                <Box flexDirection="column" marginTop={1}>
-                  <Text color={colors.textDim}>{"  Commands:"}</Text>
-                  <Text color={colors.textMuted}>{"    tables <db>          list tables in database"}</Text>
-                  <Text color={colors.textMuted}>{"    desc <db> <table>    describe table structure"}</Text>
-                  <Text color={colors.textMuted}>{"    count <db> <table>   count rows in table"}</Text>
-                  <Text color={colors.textMuted}>{"    sample <db> <t> [n]  show sample rows"}</Text>
-                  <Text color={colors.textMuted}>{"    size <db>            table sizes in database"}</Text>
-                  <Text color={colors.textMuted}>{"    indexes <db> <table> list indexes"}</Text>
-                  <Text color={colors.textMuted}>{"    views <db>           list views"}</Text>
-                  <Text color={colors.textMuted}>{"    funcs <db>           list functions"}</Text>
-                  <Text color={colors.textMuted}>{"    conns                active connections"}</Text>
-                  <Text color={colors.textMuted}>{"    queries              running queries"}</Text>
-                  <Text color={colors.textMuted}>{"    query <db> <sql>     run custom query"}</Text>
-                </Box>
-              )}
-            </Box>
-          </StyledBox>
+          {/* Right / Telemetry & Activity Pane */}
+          {renderInfoPanel()}
         </Box>
       )}
 
       <Box marginTop={1}>
         <InputBar
           onSubmit={handleSubmit}
+          onChange={setInputText}
           focused={focused}
           onEmptySubmit={() => {
-            const item = items[selectedIdx];
-            if (item) handleSubmit(item);
+            const item = displayedItems[selectedIdx];
+            if (item && !item.startsWith("---")) handleSubmit(item);
           }}
           onNavigate={(dir) => {
             if (dir === "up") {
@@ -2022,29 +2300,42 @@ export function ServiceScreen({ conn, onBack, onClose, onNewSession, tabCount, f
               });
             } else {
               setSelectedIdx((i) => {
-                const ni = Math.min(items.length - 1, i + 1);
+                const ni = Math.min(Math.max(0, displayedItems.length - 1), i + 1);
                 if (ni >= scrollOffset + maxItems) setScrollOffset(ni - maxItems + 1);
                 return ni;
               });
             }
           }}
-          placeholder={isStreaming ? "type input · Enter to send · esc to cancel" : getPlaceholder(conn.type)}
+          placeholder={isStreaming ? "type input · Enter to send · esc to cancel" : `filter <text> · ${getPlaceholder(conn.type)}`}
           history={cmdHistory}
-          completions={[...items, ...favorites]}
+          completions={[...items, ...favorites, "filter ", "refresh", "back", "close", "new"]}
         />
       </Box>
 
       <Box marginTop={1}>
         <ShortcutBar
-          shortcuts={isStreaming ? [
-            { key: "Enter", label: "send input" },
-            { key: "esc", label: "cancel" },
-          ] : [
-            { key: "Up/Dn", label: "select" },
-            { key: "Enter", label: "execute" },
-            { key: "Tab", label: "autocomplete" },
-            { key: "esc", label: "back" },
-          ]}
+          shortcuts={
+            isStreaming
+              ? [
+                  { key: "Enter", label: "send input" },
+                  { key: "esc", label: "cancel" },
+                ]
+              : overlay
+                ? [
+                    { key: "↑/↓", label: "scroll" },
+                    { key: "PgUp/Dn", label: "page" },
+                    { key: "Home/End", label: "jump" },
+                    { key: "esc", label: "close" },
+                  ]
+                : [
+                    { key: "↑/↓", label: "select" },
+                    { key: "Enter", label: "execute" },
+                    ...(conn.type === "ssh" ? [{ key: "1-6", label: "category" }] : []),
+                    { key: "Tab", label: "autocomplete" },
+                    { key: "^K", label: "palette" },
+                    { key: "esc", label: filter ? "clear filter" : "back" },
+                  ]
+          }
         />
       </Box>
     </Box>

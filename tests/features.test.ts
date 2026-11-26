@@ -10,6 +10,7 @@ import { LocalPubSub } from "../src/core/providers/messaging.js";
 import { addHealthCheck, getHealthHistory, setHealthConfig, getHealthConfig, clearHealthHistory, renderSparkline } from "../src/core/health.js";
 import { createWindowsStdinBridge } from "../src/ui/stdin-bridge.js";
 import { parseWindowsNetstat } from "../src/core/probe/network.js";
+import { parseSshMetrics, getOverlayLineColor, SSH_COMMANDS } from "../src/ui/service-helpers.js";
 import { EventEmitter } from "node:events";
 
 const TEST_HOME = join(tmpdir(), `qore-features-test-${Date.now()}`);
@@ -211,5 +212,41 @@ describe("Windows Compatibility", () => {
     expect(ports[0].service).toBe("PostgreSQL");
     expect(ports[1].port).toBe(6379);
     expect(ports[1].service).toBe("Redis");
+  });
+});
+
+describe("Service Session Helpers", () => {
+  it("parseSshMetrics extracts hostname, uptime, kernel, RAM%, and Disk%", () => {
+    const metrics = parseSshMetrics({
+      hostname: "prod-api-01",
+      os: "Linux prod-api-01 6.8.0-45-generic #45-Ubuntu SMP x86_64 GNU/Linux",
+      uptime: "up 12 days, 4 hours, 10 minutes",
+      disk: "/dev/nvme0n1p1   100G   42G   53G  45% /",
+      memory: "Mem:           16Gi       4.0Gi       8.0Gi       100Mi       4.0Gi       11Gi",
+    });
+
+    expect(metrics.hostname).toBe("prod-api-01");
+    expect(metrics.kernel).toBe("Linux 6.8.0-45-generic");
+    expect(metrics.uptime).toBe("12 days, 4 hours, 10 minutes");
+    expect(metrics.diskPct).toBe(45);
+    expect(metrics.diskDetail).toBe("42G/100G");
+    expect(metrics.memPct).toBe(25);
+    expect(metrics.memDetail).toBe("4.0Gi/16Gi");
+  });
+
+  it("getOverlayLineColor highlights errors, warnings, success, diffs, and headers", () => {
+    setActiveTheme("torlink");
+    expect(getOverlayLineColor("+ added line", 0)).toBe(colors.green);
+    expect(getOverlayLineColor("- removed line", 0)).toBe(colors.red);
+    expect(getOverlayLineColor("[!] permission denied", 0)).toBe(colors.red);
+    expect(getOverlayLineColor("WARNING: low disk space", 0)).toBe(colors.yellow);
+    expect(getOverlayLineColor("[ok] service running", 0)).toBe(colors.green);
+    expect(getOverlayLineColor("=== Security Audit ===", 0)).toBe(colors.purpleBright);
+  });
+
+  it("SSH_COMMANDS catalog includes shell as first command with metadata", () => {
+    expect(SSH_COMMANDS.length).toBeGreaterThan(25);
+    expect(SSH_COMMANDS[0].cmd).toBe("shell");
+    expect(SSH_COMMANDS[0].category).toBe("shell");
   });
 });
