@@ -39,6 +39,8 @@ const COMPLETIONS = [
   ...THEME_NAMES.map((t) => `theme ${t}`),
   "lock",
   "refresh",
+  "update",
+  "update install",
 ];
 
 export function WelcomeScreen({

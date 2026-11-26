@@ -2,6 +2,7 @@ import { version } from "../../package.json";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { existsSync, copyFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { compareVersions } from "../core/updater.js";
 
 const REPO = "Kodjaoglanian/qore";
 function qoreDir(): string {
@@ -78,17 +79,6 @@ async function fetchLatestRelease(): Promise<ReleaseInfo> {
   };
 }
 
-function compareVersions(a: string, b: string): number {
-  const pa = a.replace(/^v/, "").split(".").map(Number);
-  const pb = b.replace(/^v/, "").split(".").map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const va = pa[i] ?? 0;
-    const vb = pb[i] ?? 0;
-    if (va > vb) return 1;
-    if (va < vb) return -1;
-  }
-  return 0;
-}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -216,7 +206,7 @@ async function downloadFile(url: string, dest: string, onProgress?: (pct: number
   }
 }
 
-async function doUpdate(): Promise<void> {
+export async function doUpdate(): Promise<void> {
   const currentVersion = `v${version}`;
   printBanner();
 

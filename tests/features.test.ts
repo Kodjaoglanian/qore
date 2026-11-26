@@ -12,6 +12,7 @@ import { createWindowsStdinBridge } from "../src/ui/stdin-bridge.js";
 import { parseWindowsNetstat } from "../src/core/probe/network.js";
 import { parseSshMetrics, getOverlayLineColor, SSH_COMMANDS } from "../src/ui/service-helpers.js";
 import { EventEmitter } from "node:events";
+import { compareVersions, checkForUpdate } from "../src/core/updater.js";
 
 const TEST_HOME = join(tmpdir(), `qore-features-test-${Date.now()}`);
 
@@ -212,6 +213,50 @@ describe("Windows Compatibility", () => {
     expect(ports[0].service).toBe("PostgreSQL");
     expect(ports[1].port).toBe(6379);
     expect(ports[1].service).toBe("Redis");
+  });
+});
+
+describe("Update Detection", () => {
+  it("compareVersions handles v-prefix, uneven lengths and numeric ordering", () => {
+    expect(compareVersions("v0.14.3", "0.14.2")).toBe(1);
+    expect(compareVersions("0.14.3", "v0.14.3")).toBe(0);
+    expect(compareVersions("v0.9.0", "v0.14.0")).toBe(-1);
+    expect(compareVersions("1.0", "1.0.0")).toBe(0);
+  });
+
+  it("checkForUpdate detects a newer release, caches it, and avoids refetching", async () => {
+    let calls = 0;
+    const fetcher = async () => {
+      calls++;
+      return { tagName: "v9.9.9", url: "https://example.com/r" };
+    };
+
+    const first = await checkForUpdate({ force: true, currentVersion: "0.14.3", fetcher });
+    expect(first?.available).toBe(true);
+    expect(first?.latest).toBe("v9.9.9");
+    expect(first?.fromCache).toBe(false);
+
+    const second = await checkForUpdate({ currentVersion: "0.14.3", fetcher });
+    expect(second?.available).toBe(true);
+    expect(second?.fromCache).toBe(true);
+    expect(calls).toBe(1);
+  });
+
+  it("checkForUpdate reports up-to-date and survives network failure using cache", async () => {
+    const same = await checkForUpdate({
+      force: true,
+      currentVersion: "9.9.9",
+      fetcher: async () => ({ tagName: "v9.9.9", url: "u" }),
+    });
+    expect(same?.available).toBe(false);
+
+    const offline = await checkForUpdate({
+      force: true,
+      currentVersion: "0.1.0",
+      fetcher: async () => { throw new Error("offline"); },
+    });
+    expect(offline?.available).toBe(true);
+    expect(offline?.fromCache).toBe(true);
   });
 });
 

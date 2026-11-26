@@ -7,11 +7,13 @@ export type ThemeName = "torlink" | "cyber" | "emerald" | "amber" | "rose";
 export interface QoreConfig {
   theme: ThemeName;
   autoProbeOnStart: boolean;
+  checkUpdates: boolean;
 }
 
 const DEFAULT_CONFIG: QoreConfig = {
   theme: "torlink",
   autoProbeOnStart: true,
+  checkUpdates: true,
 };
 
 function qoreDir(): string {

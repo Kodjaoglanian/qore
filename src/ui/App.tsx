@@ -19,6 +19,7 @@ import { Orchestrator } from "../core/orchestrator.js";
 import { Vault } from "../core/vault/vault.js";
 import { SocketBridge } from "../core/vault/socket-bridge.js";
 import { loadConfig, saveConfig, type ThemeName } from "../core/config.js";
+import { checkForUpdate, UPDATE_CHECK_INTERVAL_MS, type UpdateInfo } from "../core/updater.js";
 import { LocalS3Provider } from "../core/providers/localS3.js";
 import { AwsS3Provider } from "../core/providers/awsS3.js";
 import { LocalPubSub } from "../core/providers/messaging.js";
@@ -73,6 +74,8 @@ export function App() {
   const [ptyActive, setPtyActive] = useState(false);
   const [themeTick, setThemeTick] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const notifiedVersion = useRef<string | null>(null);
 
   // Hybrid providers state
   const [storageType, setStorageType] = useState<ProviderType>("local");
@@ -140,6 +143,50 @@ export function App() {
       });
     }
   }, []);
+
+  const runUpdateCheck = useCallback(async (force: boolean, announce: boolean) => {
+    const info = await checkForUpdate({ force });
+    if (!info) {
+      if (announce) showToast("Could not check for updates (offline?)");
+      return;
+    }
+    setUpdateInfo(info);
+    if (info.available) {
+      if (announce || notifiedVersion.current !== info.latest) {
+        notifiedVersion.current = info.latest;
+        showToast(`Update available: ${info.latest} — type 'update install'`);
+      }
+    } else if (announce) {
+      showToast(`You're on the latest version (${info.current})`);
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    if (!loadConfig().checkUpdates) return;
+    const first = setTimeout(() => { runUpdateCheck(false, false); }, 1500);
+    const interval = setInterval(() => { runUpdateCheck(false, false); }, UPDATE_CHECK_INTERVAL_MS);
+    return () => {
+      clearTimeout(first);
+      clearInterval(interval);
+    };
+  }, [runUpdateCheck]);
+
+  const installUpdate = useCallback(() => {
+    if (socketBridge) socketBridge.stop();
+    if (vault) vault.lock();
+    localS3Ref.current?.close();
+    try {
+      setRawMode(false);
+      if (typeof process.stdin.setRawMode === "function") process.stdin.setRawMode(false);
+    } catch {}
+    exit();
+    setTimeout(() => {
+      import("../cli/update.js")
+        .then((m) => m.doUpdate())
+        .catch(() => {})
+        .finally(() => process.exit(0));
+    }, 100);
+  }, [socketBridge, vault, setRawMode, exit]);
 
   const applyTheme = useCallback((name?: string) => {
     if (name && THEME_NAMES.includes(name as ThemeName)) {
@@ -230,6 +277,20 @@ export function App() {
         case "lock":
           lockVault();
           break;
+        case "update":
+        case "upgrade":
+          if (parts[1] === "install" || parts[1] === "now") {
+            if (updateInfo?.available) {
+              installUpdate();
+            } else {
+              showToast("No update available — checking...");
+              runUpdateCheck(true, true);
+            }
+          } else {
+            showToast("Checking for updates...");
+            runUpdateCheck(true, true);
+          }
+          break;
         case "refresh":
           runDiscovery();
           showToast("Refreshing local telemetry...");
@@ -260,7 +321,7 @@ export function App() {
           break;
       }
     },
-    [runDiscovery, exit, vault, socketBridge, screen, applyTheme, lockVault, showToast]
+    [runDiscovery, exit, vault, socketBridge, screen, applyTheme, lockVault, showToast, updateInfo, installUpdate, runUpdateCheck]
   );
 
   const handleVaultUnlock = useCallback((v: Vault) => {
@@ -306,6 +367,10 @@ export function App() {
       { id: "nav-wiki", label: "Wiki Documentation", category: "Screen", description: "Built-in Qore documentation book", icon: "▥", color: colors.blue, action: () => setScreen("wiki") },
       { id: "nav-help", label: "Help Reference", category: "Screen", description: "Searchable command cheat sheet", icon: "?", color: colors.purple, action: () => setScreen("help") },
       { id: "act-refresh", label: "Refresh Probe", category: "Action", description: "Re-scan local host, ports & Docker", icon: "⟳", color: colors.cyan, action: () => handleCommand("refresh") },
+      { id: "act-update-check", label: "Check for Updates", category: "Action", description: updateInfo?.available ? `New version ${updateInfo.latest} available` : "Query GitHub for a new release", icon: "⬆", color: colors.yellow, action: () => handleCommand("update") },
+      ...(updateInfo?.available
+        ? [{ id: "act-update-install", label: `Install ${updateInfo.latest}`, category: "Action", description: "Exit Qore and run the self-updater", icon: "⬆", color: colors.green, action: () => handleCommand("update install") } as PaletteItem]
+        : []),
     ];
 
     if (vault && vault.isUnlocked()) {
@@ -354,7 +419,7 @@ export function App() {
     });
 
     return items;
-  }, [vault, themeTick, runDiscovery, handleCommand, handleConnect, lockVault, applyTheme]);
+  }, [vault, themeTick, runDiscovery, handleCommand, handleConnect, lockVault, applyTheme, updateInfo]);
 
   useInput((input, key) => {
     // Allow Ctrl+C to exit from anywhere (except inside an active remote SSH PTY, where it sends \x03)
@@ -398,6 +463,7 @@ export function App() {
         portCount={portCount}
         containerCount={containerCount}
         storageProvider={storageType}
+        updateVersion={updateInfo?.available ? updateInfo.latest : null}
         vaultUnlocked={vault?.isUnlocked()}
         activeTabs={activeConns.length}
       />

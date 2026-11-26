@@ -11,6 +11,7 @@ interface StatusBarProps {
   storageProvider: string;
   vaultUnlocked?: boolean;
   activeTabs?: number;
+  updateVersion?: string | null;
 }
 
 export function StatusBar({
@@ -21,6 +22,7 @@ export function StatusBar({
   storageProvider,
   vaultUnlocked,
   activeTabs = 0,
+  updateVersion = null,
 }: StatusBarProps) {
   const dockerColor =
     dockerStatus === "connected"
@@ -61,6 +63,12 @@ export function StatusBar({
         )}
       </Box>
       <Box gap={1}>
+        {updateVersion && (
+          <>
+            <Text color={colors.yellow} bold>⬆ {updateVersion} · type update</Text>
+            <Text color={colors.borderMuted}>│</Text>
+          </>
+        )}
         <Text color={colors.textDim}>
           Vault:{" "}
           <Text color={vaultUnlocked ? colors.green : colors.textMuted} bold={vaultUnlocked}>
