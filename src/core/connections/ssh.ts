@@ -37,8 +37,110 @@ function cleanOutput(str: string): string {
   return normalizeCr(stripAnsi(str));
 }
 
+export interface SshTiming {
+  connectMs: number;
+  execMs: number;
+  reused: boolean;
+}
+
+interface PoolEntry {
+  client: any;
+  ready: Promise<any>;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+const POOL_IDLE_MS = 5 * 60 * 1000;
+const sshPool = new Map<string, PoolEntry>();
+
+function poolKey(config: ConnectionConfig): string {
+  return `${config.username ?? "root"}@${config.host}:${config.port}:${config.id ?? ""}`;
+}
+
+export function closeSshPool(): void {
+  for (const [key, entry] of sshPool) {
+    if (entry.timer) clearTimeout(entry.timer);
+    try { entry.client.end(); } catch {}
+    sshPool.delete(key);
+  }
+}
+
 export class SshManager implements ConnectionManager {
   lastError: string | null = null;
+  lastTiming: SshTiming | null = null;
+  private pooled: boolean;
+  private lastReused = false;
+  private lastConnectMs = 0;
+
+  /**
+   * @param opts.pooled Reuse one authenticated SSH connection per host across calls
+   *   (skips the key-exchange + auth handshake, which dominates latency on slow links /
+   *   pure-JS crypto). Used by the MCP server where every tool call is a new request.
+   */
+  constructor(opts: { pooled?: boolean } = {}) {
+    this.pooled = opts.pooled ?? false;
+  }
+
+  private release(client: any): void {
+    if (this.pooled) {
+      const entry = [...sshPool.values()].find((e) => e.client === client);
+      if (entry) {
+        if (entry.timer) clearTimeout(entry.timer);
+        entry.timer = setTimeout(() => {
+          try { client.end(); } catch {}
+        }, POOL_IDLE_MS);
+        (entry.timer as any).unref?.();
+        return;
+      }
+    }
+    try { client.end(); } catch {}
+  }
+
+  private async connectClient(config: ConnectionConfig): Promise<any> {
+    const started = Date.now();
+    if (!this.pooled) {
+      this.lastReused = false;
+      const c = await this.openClient(config);
+      this.lastConnectMs = Date.now() - started;
+      return c;
+    }
+
+    const key = poolKey(config);
+    const existing = sshPool.get(key);
+    if (existing) {
+      try {
+        const client = await existing.ready;
+        if (existing.timer) { clearTimeout(existing.timer); existing.timer = null; }
+        this.lastReused = true;
+        this.lastConnectMs = Date.now() - started;
+        return client;
+      } catch {
+        sshPool.delete(key);
+      }
+    }
+
+    const entry: PoolEntry = { client: null, ready: null as any, timer: null };
+    entry.ready = this.openClient(config, { keepalive: true }).then((client) => {
+      entry.client = client;
+      const evict = () => {
+        if (sshPool.get(key) === entry) sshPool.delete(key);
+        if (entry.timer) clearTimeout(entry.timer);
+      };
+      client.on("close", evict);
+      client.on("end", evict);
+      client.on("error", evict);
+      return client;
+    });
+    sshPool.set(key, entry);
+    try {
+      const client = await entry.ready;
+      this.lastReused = false;
+      this.lastConnectMs = Date.now() - started;
+      return client;
+    } catch (err) {
+      if (sshPool.get(key) === entry) sshPool.delete(key);
+      throw err;
+    }
+  }
 
   async testConnection(config: ConnectionConfig): Promise<boolean> {
     try {
@@ -84,7 +186,7 @@ export class SshManager implements ConnectionManager {
     }
   }
 
-  private async connectClient(config: ConnectionConfig): Promise<any> {
+  private async openClient(config: ConnectionConfig, opts: { keepalive?: boolean } = {}): Promise<any> {
     const { Client } = await import("ssh2");
     return new Promise((resolve, reject) => {
       const client = new Client();
@@ -132,6 +234,10 @@ export class SshManager implements ConnectionManager {
       if (config.useTls) {
         authConfig.readyTimeout = 10000;
       }
+      if (opts.keepalive) {
+        authConfig.keepaliveInterval = 15000;
+        authConfig.keepaliveCountMax = 3;
+      }
 
       client.connect(authConfig);
     });
@@ -139,6 +245,7 @@ export class SshManager implements ConnectionManager {
 
   async exec(config: ConnectionConfig, command: string, timeoutMs?: number, usePty?: boolean): Promise<SshResult> {
     const client = await this.connectClient(config);
+    const execStarted = Date.now();
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         client.end();
@@ -171,7 +278,12 @@ export class SshManager implements ConnectionManager {
 
         stream.on("close", (code: number) => {
           clearTimeout(timeout);
-          client.end();
+          this.release(client);
+          this.lastTiming = {
+            connectMs: this.lastConnectMs,
+            execMs: Date.now() - execStarted,
+            reused: this.lastReused,
+          };
           stdout = cleanOutput(stdout);
           stderr = cleanOutput(stderr);
           if (hasSudo && config.password) {
@@ -399,7 +511,8 @@ export class SshManager implements ConnectionManager {
       client.sftp((err: any, sftp: any) => {
         if (err) { client.end(); reject(err); return; }
         sftp.fastPut(localPath, remotePath, (err2: any) => {
-          client.end();
+          try { sftp.end(); } catch {}
+          this.release(client);
           if (err2) reject(err2);
           else resolve();
         });
@@ -413,7 +526,8 @@ export class SshManager implements ConnectionManager {
       client.sftp((err: any, sftp: any) => {
         if (err) { client.end(); reject(err); return; }
         sftp.fastGet(remotePath, localPath, (err2: any) => {
-          client.end();
+          try { sftp.end(); } catch {}
+          this.release(client);
           if (err2) reject(err2);
           else resolve();
         });

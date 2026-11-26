@@ -5,6 +5,12 @@ import type { ConnectionConfig } from "../../core/vault/types.js";
 
 const vaultClient = new VaultClient();
 
+function timingLine(mgr: SshManager, vaultMs: number): string {
+  const t = mgr.lastTiming;
+  if (!t) return "";
+  return `\n[timing] vault=${vaultMs}ms ssh-connect=${t.connectMs}ms${t.reused ? " (reused)" : " (new handshake)"} exec=${t.execMs}ms`;
+}
+
 async function getConnection(name: string): Promise<ConnectionConfig> {
   const resp = await vaultClient.getConnection(name);
   if ("error" in resp) {
@@ -49,11 +55,13 @@ export const sshTools: ToolDef[] = [
       required: ["connection", "command"],
     },
     handler: async (args) => {
+      const t0 = Date.now();
       const config = await getConnection(args.connection as string);
-      const mgr = new SshManager();
+      const vaultMs = Date.now() - t0;
+      const mgr = new SshManager({ pooled: true });
       const result = await mgr.exec(config, args.command as string, args.timeout as number | undefined);
       const output = result.stdout + (result.stderr ? `\n[stderr]\n${result.stderr}` : "");
-      return `Exit code: ${result.exitCode}\n${output || "(no output)"}`;
+      return `Exit code: ${result.exitCode}\n${output || "(no output)"}${timingLine(mgr, vaultMs)}`;
     },
   },
   {
@@ -67,11 +75,13 @@ export const sshTools: ToolDef[] = [
       required: ["connection"],
     },
     handler: async (args) => {
+      const t0 = Date.now();
       const config = await getConnection(args.connection as string);
-      const mgr = new SshManager();
+      const vaultMs = Date.now() - t0;
+      const mgr = new SshManager({ pooled: true });
       const info = await mgr.getInfo(config);
       const infoStr = Object.entries(info).map(([k, v]) => `${k}: ${v}`).join("\n");
-      return `Connection to ${config.host}:${config.port} successful.\n${infoStr}`;
+      return `Connection to ${config.host}:${config.port} successful.\n${infoStr}${timingLine(mgr, vaultMs)}`;
     },
   },
   {
@@ -88,7 +98,7 @@ export const sshTools: ToolDef[] = [
     },
     handler: async (args) => {
       const config = await getConnection(args.connection as string);
-      const mgr = new SshManager();
+      const mgr = new SshManager({ pooled: true });
       await mgr.uploadFile(config, args.localPath as string, args.remotePath as string);
       return `Uploaded ${args.localPath} → ${args.remotePath}`;
     },
@@ -107,7 +117,7 @@ export const sshTools: ToolDef[] = [
     },
     handler: async (args) => {
       const config = await getConnection(args.connection as string);
-      const mgr = new SshManager();
+      const mgr = new SshManager({ pooled: true });
       await mgr.downloadFile(config, args.remotePath as string, args.localPath as string);
       return `Downloaded ${args.remotePath} → ${args.localPath}`;
     },
@@ -124,7 +134,7 @@ export const sshTools: ToolDef[] = [
     },
     handler: async (args) => {
       const config = await getConnection(args.connection as string);
-      const mgr = new SshManager();
+      const mgr = new SshManager({ pooled: true });
       const info = await mgr.getInfo(config);
       return Object.entries(info).map(([k, v]) => `${k}: ${v}`).join("\n");
     },
